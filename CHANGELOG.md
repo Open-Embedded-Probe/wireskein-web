@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- (EN) Viewer: the trigger is drawn as a dashed line marked T across the rows, and its time is in the summary. It comes from the logic segment's `trigger_index` (meta), an analog channel's `acquisition.trigger_index`, or `meta.probe.trigger_ns` against `meta.start_ns`.
+- (JA) ビューア: トリガの位置を、行をまたぐ T の付いた破線で示し、その時刻を概要に出す。ロジックの区画の `trigger_index`（meta）、アナログのチャンネルの `acquisition.trigger_index`、または `meta.probe.trigger_ns` と `meta.start_ns` から求める。
 ## 0.0.2
 
 - (EN) Reads sigrok `.sr` too: `readCapture(bytes)` opens a WireSkein file or a `.sr` by content (`sniff(bytes)`, `readSr(bytes)`), and so does the viewer. A `.sr` written by wireskein gets its channels back at their own rates (the real step, the raw analog values, the metadata, attachments and notes); any other `.sr` has every named channel at the file's rate, analog as volts.

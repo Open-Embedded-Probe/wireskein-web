@@ -22,6 +22,7 @@ const LABEL_PX = 110;      // about this many pixels between time labels
  * @property {number | null} lane                channel under the mouse
  * @property {number[][]} edges                  per logic channel, its edge ticks
  * @property {(Float64Array | null)[]} volts     per analog channel, volts when convertible
+ * @property {number | null} trigger             tick of the trigger, when the probe reported one
  */
 
 /** @type {View | null} */
@@ -63,11 +64,29 @@ function fmtTick(s, step) {
 
 // ---- loading ----
 
+/**
+ * Where the trigger was, in ticks: the logic segment's trigger_index (meta), else an analog channel's
+ * (acquisition.trigger_index), else the group's trigger_ns against start_ns. null: no trigger reported.
+ * @param {Capture} cap
+ */
+function triggerTick(cap) {
+  const meta = /** @type {Record<string, any>} */ (cap.meta);
+  const logic = cap.channels.find((c) => c.kind === 'logic');
+  if (typeof meta.trigger_index === 'number' && logic?.kind === 'logic') return logic.phase + meta.trigger_index * logic.step;
+  for (const c of cap.channels) {
+    const k = c.acquisition.trigger_index;
+    if (c.kind === 'analog' && typeof k === 'number') return analogTick(c, cap.tickHz, k);
+  }
+  const ns = meta.probe?.trigger_ns, start = meta.start_ns;
+  if (typeof ns === 'number' && typeof start === 'number') return ((ns - start) * cap.tickHz[0]) / (cap.tickHz[1] * 1e9);
+  return null;
+}
+
 async function open(/** @type {File | { name: string, arrayBuffer: () => Promise<ArrayBuffer> }} */ file) {
   try {
     const cap = await readCapture(new Uint8Array(await file.arrayBuffer()));
     state = {
-      cap, t0: 0, t1: Math.max(1, cap.ticks), cursor: null, lane: null,
+      cap, t0: 0, t1: Math.max(1, cap.ticks), cursor: null, lane: null, trigger: triggerTick(cap),
       edges: cap.channels.map((ch) => (ch.kind === 'logic' ? edges(ch) : [])),
       volts: cap.channels.map((ch) => (ch.kind === 'analog' ? volts(ch) : null)),
     };
@@ -95,7 +114,8 @@ function showSummary(/** @type {string} */ name, /** @type {Capture} */ cap) {
   el.hidden = false;
   el.innerHTML = '';
   const h = document.createElement('div');
-  h.innerHTML = `<b></b> · ${cap.channels.length} channels · ${fmtTime(cap.ticks / tick)} · tick ${fmtHz(tick)}`;
+  h.innerHTML = `<b></b> · ${cap.channels.length} channels · ${fmtTime(cap.ticks / tick)} · tick ${fmtHz(tick)}`
+    + (state?.trigger != null ? ` · trigger at ${fmtTime(state.trigger / tick, 4)}` : '');
   /** @type {HTMLElement} */ (h.querySelector('b')).textContent = name;
   el.append(h);
   if (cap.skipped.length) {
@@ -229,7 +249,7 @@ function colors() {
   const s = getComputedStyle(document.body);
   const c = (/** @type {string} */ n) => s.getPropertyValue(n).trim();
   return { line: c('--line'), band: c('--band'), grid: c('--grid'), muted: c('--muted'), cursor: c('--cursor'),
-           pulse: c('--pulse'), window: c('--window'), track: c('--track') };
+           pulse: c('--pulse'), window: c('--window'), track: c('--track'), trigger: c('--trigger') };
 }
 /** @typedef {ReturnType<typeof colors>} Colors */
 
@@ -267,6 +287,22 @@ function draw() {
       const px = Math.round(x(m * step * t)) + 0.5;
       g.beginPath(); g.moveTo(px, role === 'ruler' ? h - 8 : 0); g.lineTo(px, h); g.stroke();
       if (role === 'ruler') g.fillText(fmtTick(m * step, step), px + 3, h - 10);
+    }
+    if (v.trigger !== null) {                                // the trigger, across every row
+      const px = Math.round(x(v.trigger)) + 0.5;
+      g.strokeStyle = col.trigger;
+      g.lineWidth = 1.5;
+      g.setLineDash([4, 3]);
+      g.beginPath(); g.moveTo(px, role === 'ruler' ? 9 : 0); g.lineTo(px, h); g.stroke();
+      g.setLineDash([]);
+      if (role === 'ruler') {
+        g.fillStyle = col.trigger;
+        g.beginPath(); g.moveTo(px - 5, 1); g.lineTo(px + 5, 1); g.lineTo(px, 9); g.fill();
+        g.font = 'bold 11px system-ui, sans-serif';
+        g.fillText('T', px + 6, 10);
+        g.font = '12px system-ui, sans-serif';
+        g.fillStyle = col.muted;
+      }
     }
     if (role === 'ruler') {
       if (v.cursor !== null) drawCursorTime(g, x(v.cursor), w, fmtTime(v.cursor / t), col);
