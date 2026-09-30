@@ -1,0 +1,10 @@
+// @ts-check
+import { readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const mod = await import(pathToFileURL(join(root, 'dist', 'wireskein-web.js')).href);
+const cap = await mod.readWsc(readFileSync(join(root, 'test', 'fixtures', 'mixed.wsc')));
+if (cap.channels.length !== 4 || cap.channels[0].name !== 'CLK') throw new Error('dist smoke: .wsc read failed');
+console.log(`dist smoke ok (v${mod.VERSION})`);

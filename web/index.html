@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WireSkein viewer</title>
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+  <link rel="stylesheet" href="./styles/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>WireSkein viewer</h1>
+      <p>Open a capture file (.wsc). It stays in this browser.</p>
+    </div>
+    <div class="top-actions">
+      <label class="button">Open .wsc<input id="file" type="file" accept=".wsc" hidden></label>
+      <a href="https://github.com/Open-Embedded-Probe/wireskein-web">GitHub</a>
+    </div>
+  </header>
+  <main>
+    <section id="drop" class="drop">Drop a .wsc file here</section>
+    <section id="summary" class="summary" hidden></section>
+    <section id="view" class="view" hidden>
+      <div class="hint">Wheel: zoom · drag: pan · double-click: fit. Dots mark the samples the probe really took;
+        shaded bands before an edge show where it happened on a decimated channel.</div>
+      <div id="lanes"></div>
+    </section>
+    <section id="details" class="details" hidden></section>
+  </main>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
