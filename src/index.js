@@ -5,7 +5,7 @@
  * `wireskein gui` serves a build of this library.
  */
 
-export const VERSION = '0.0.3';
+export const VERSION = '0.0.4';
 
 export { ENCODINGS, FORMAT, analogTick, edges, levelAt, readWireskein, volts } from './fileformat.js';
 export { ALIGNMENT_FORMAT, alignedTick, readAlignment } from './align.js';

@@ -1,6 +1,6 @@
 {
   "name": "wireskein-web",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "The browser side of WireSkein: read logic-analyzer capture files (.wsc) and show them.",
   "type": "module",
   "license": "MIT",
