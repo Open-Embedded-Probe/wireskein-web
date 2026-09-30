@@ -410,7 +410,7 @@ function showChecks(doc) {
   el.hidden = !doc?.run;
   if (!doc?.run) return;
   const h = document.createElement('div');
-  const ng = doc.results.filter((r) => r.ok === false).length;
+  const ng = doc.results.filter((r) => (r.status ?? (r.ok === false ? 'ng' : '')) === 'ng').length;
   h.innerHTML = '<b>Checks</b> ';
   h.append(`run ${doc.run} · ${doc.results.length} on this capture` + (ng ? ` · ${ng} NG` : ''));
   el.append(h);
@@ -418,8 +418,9 @@ function showChecks(doc) {
   for (const r of doc.results) {
     const tr = table.insertRow();
     const mark = tr.insertCell();
-    mark.textContent = r.ok === true ? 'OK' : r.ok === false ? 'NG' : '--';
-    mark.className = r.ok === true ? 'ok' : r.ok === false ? 'ng' : 'unchecked';
+    const status = r.status ?? (r.ok === true ? 'ok' : r.ok === false ? 'ng' : 'unchecked');
+    mark.textContent = { ok: 'OK', ng: 'NG', unchecked: '--', measured: 'ME' }[/** @type {string} */ (status)] ?? '--';
+    mark.className = status;
     tr.insertCell().textContent = r.path;
     tr.insertCell().textContent = r.check;
     tr.insertCell().textContent = r.reason || '';
