@@ -4,7 +4,7 @@
  *
  * A .sr has one sample rate for all channels: logic samples interleaved,
  * `unitsize` bytes per sample (bit k = probe k+1), analog as float32 volts. A
- * .sr written by wireskein also holds wireskein.json ("wireskein-sr-extra/0"):
+ * .sr written by wireskein also holds wireskein/sr-extra.json ("wireskein-sr-extra/1"):
  * each channel's real step / phase, the exact tick clock, the metadata and the
  * raw analog values. With it, the channels get their own rate back (only the
  * samples the probe took); without it, every channel is at the .sr's rate.
@@ -16,6 +16,8 @@ import { listEntries, readEntry } from './zip.js';
 /** @typedef {import('./fileformat.js').LogicChannel} LogicChannel */
 /** @typedef {import('./fileformat.js').AnalogChannel} AnalogChannel */
 /** @typedef {import('./fileformat.js').Ratio} Ratio */
+
+const EXTRA = 'wireskein/sr-extra.json';       // wireskein-format §6
 
 const UNITS = /** @type {Record<string, number>} */ ({ hz: 1, khz: 1e3, mhz: 1e6, ghz: 1e9 });
 
@@ -77,7 +79,8 @@ export async function readSr(input) {
   if (!dev.samplerate) throw new Error('the .sr has no samplerate');
   const unitsize = Number(dev.unitsize ?? 1);
   const prefix = dev.capturefile ?? 'logic-1';
-  const extra = entries.has('wireskein.json') ? JSON.parse(await text('wireskein.json')) : {};
+  const found = entries.has(EXTRA) ? JSON.parse(await text(EXTRA)) : {};
+  const extra = found.format === 'wireskein-sr-extra/1' ? found : {};    // another version's, or none: a plain .sr
   /** @type {Ratio} */
   const tickHz = extra.tick_hz ?? ratio(parseRate(dev.samplerate));
 
@@ -159,5 +162,6 @@ export async function readSr(input) {
   }
   for (const name of [...entries.keys()].filter((x) => x.startsWith('notes/')).sort()) notes.push(JSON.parse(await text(name)));
   const meta = { ...(extra.meta ?? {}), sr: { samplerate: dev.samplerate, unitsize } };
-  return { tickHz, ticks, meta, channels, skipped: [], attachments, notes, parts: new Map() };
+  return { tickHz, ticks, meta, channels, skipped: [], attachments, notes, parts: new Map(),
+           id: typeof extra.id === 'string' ? extra.id : null };
 }
