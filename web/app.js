@@ -278,7 +278,10 @@ function buildLanes(/** @type {Capture} */ cap) {
 
 /** A lane for one row of decoding annotations. @param {HTMLElement} lanes @param {AnnotationRow} r @param {number} k */
 function annotationLane(lanes, r, k) {
-  const { lane, canvas } = row(r.name, `${r.items.length} items`, ANNOTATION_H, 'annotation');
+  const sure = !r.verdict || r.verdict === 'confirmed';
+  const how = sure ? '' : ` · ${r.verdict}${typeof r.score === 'number' ? ` ${r.score.toFixed(2)}` : ''}`;
+  const { lane, canvas } = row(r.name, `${r.items.length} items${how}`, ANNOTATION_H, 'annotation');
+  if (!sure) lane.classList.add('unsure');
   canvas.dataset.row = String(k);
   lanes.append(lane);
   attachInput(canvas, null, k);

@@ -32,6 +32,8 @@ export const ANNOTATIONS_FORMAT = 'wireskein-annotations/0';
  * @typedef {object} AnnotationRow
  * @property {string} name
  * @property {string} [near]     the channel it goes under
+ * @property {string} [verdict]  how sure the analysis is ("confirmed", "likely", ...)
+ * @property {number} [score]    0..1
  * @property {AnnotationItem[]} items
  */
 
