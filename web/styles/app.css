@@ -1,6 +1,8 @@
-:root { --bg: #f7f8fa; --fg: #1d2330; --muted: #6b7384; --line: #2f6fe0; --band: #2f6fe02a; --grid: #e3e6ec; --card: #fff; }
+:root { --bg: #f7f8fa; --fg: #1d2330; --muted: #6b7384; --line: #2f6fe0; --band: #2f6fe02a; --grid: #e3e6ec; --card: #fff;
+  --cursor: #e0542f; --pulse: #2f6fe014; --window: #2f6fe066; --track: #e3e6ec; }
 @media (prefers-color-scheme: dark) {
-  :root { --bg: #14171d; --fg: #e6e9ef; --muted: #98a0b0; --line: #6ea0ff; --band: #6ea0ff33; --grid: #262b35; --card: #1b1f27; }
+  :root { --bg: #14171d; --fg: #e6e9ef; --muted: #98a0b0; --line: #6ea0ff; --band: #6ea0ff33; --grid: #262b35; --card: #1b1f27;
+    --cursor: #ff7a52; --pulse: #6ea0ff1f; --window: #6ea0ff77; --track: #262b35; }
 }
 * { box-sizing: border-box; }
 body { margin: 0; font: 14px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--fg); }
@@ -16,9 +18,13 @@ main { padding: 16px 20px; }
 .summary, .details { background: var(--card); border: 1px solid var(--grid); border-radius: 8px; padding: 12px 16px; margin: 12px 0; }
 .summary code, .details code { font-size: 12px; }
 .hint { color: var(--muted); font-size: 12px; margin: 8px 0; }
-.lane { display: grid; grid-template-columns: 140px minmax(0, 1fr); align-items: center; border-bottom: 1px solid var(--grid); }
-.lane .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 8px; }
+.lane { display: grid; grid-template-columns: 170px minmax(0, 1fr); align-items: center; border-bottom: 1px solid var(--grid); }
+.lane.ruler, .lane.overview { border-bottom: 0; }
+.lane.overview canvas { cursor: pointer; }
+.lane .name { font-weight: 600; padding-left: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 8px; }
 .lane .name small { display: block; font-weight: 400; color: var(--muted); }
 .lane canvas { width: 100%; display: block; cursor: grab; touch-action: none; }
 table { border-collapse: collapse; }
 td, th { text-align: left; padding: 2px 12px 2px 0; vertical-align: top; }
+.tip { position: absolute; z-index: 10; pointer-events: none; background: var(--card); border: 1px solid var(--grid); border-radius: 6px;
+  padding: 6px 10px; font-size: 12px; line-height: 1.5; box-shadow: 0 2px 8px #0003; white-space: nowrap; font-variant-numeric: tabular-nums; }

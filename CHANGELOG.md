@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- (EN) Viewer: a time axis with 1-2-5 labels and grid lines across the lanes; an overview strip of the whole capture (click or drag to move there); taller lanes. Hover a logic lane to measure: the width of the pulse under the mouse and of the next one, the period, the frequency and the duty (± one sample on a decimated channel), with the pulse highlighted; hover an analog lane for the sample's value. Scroll in time with Shift + wheel, a trackpad swipe, drag or ← →; + − zoom, Home fits. `&cursor=TICK,CHANNEL` puts the cursor there (screenshots).
+- (JA) ビューア: 1-2-5 の目盛りの時間軸と、行をまたぐ格子線。キャプチャ全体の帯（押すかドラッグでその位置へ移動）。行を高くした。ロジックの行にマウスを重ねると、その位置のパルスと次のパルスの幅、周期、周波数、デューティを示す（間引いたチャンネルは ± 1 サンプル）。そのパルスは色を付けて示す。アナログの行では、サンプルの値を示す。時間方向の移動は、Shift + ホイール、トラックパッドの横スワイプ、ドラッグ、← →。拡大・縮小は + −、Home で全体に戻る。`&cursor=TICK,CHANNEL` でカーソルを置ける（スクリーンショット用）。
+
 ## 0.0.1
 
 - (EN) First release. Read WireSkein capture files (`.wsc`, format `wireskein-capture/0`) in the browser or Node.js: logic channels with their own sample step, analog channels (raw values with the linear conversion, or volts) with their own rate and start, acquisition settings, metadata, attachments and notes; channels of encodings this version does not read are skipped and named, never misread. No dependencies: deflate is undone with the platform's `DecompressionStream`.
