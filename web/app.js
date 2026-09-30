@@ -1,5 +1,5 @@
 // @ts-check
-import { analogTick, edges, levelAt, readCapture, VERSION, volts } from './wireskein-web.js';
+import { alignedTick, edges, levelAt, readAlignment, readCapture, VERSION, volts } from './wireskein-web.js';
 
 /** @typedef {import('../src/fileformat.js').Capture} Capture */
 /** @typedef {import('../src/fileformat.js').LogicChannel} LogicChannel */
@@ -23,6 +23,8 @@ const LABEL_PX = 110;      // about this many pixels between time labels
  * @property {number[][]} edges                  per logic channel, its edge ticks
  * @property {(Float64Array | null)[]} volts     per analog channel, volts when convertible
  * @property {number | null} trigger             tick of the trigger, when the probe reported one
+ * @property {Map<string, import('../src/align.js').Alignment> | null} alignment   from attach/alignment.json
+ * @property {boolean} aligned                    draw the analog channels on the aligned time
  */
 
 /** @type {View | null} */
@@ -69,13 +71,13 @@ function fmtTick(s, step) {
  * (acquisition.trigger_index), else the group's trigger_ns against start_ns. null: no trigger reported.
  * @param {Capture} cap
  */
-function triggerTick(cap) {
+function triggerTick(cap, /** @type {View | null} */ v = null) {
   const meta = /** @type {Record<string, any>} */ (cap.meta);
   const logic = cap.channels.find((c) => c.kind === 'logic');
   if (typeof meta.trigger_index === 'number' && logic?.kind === 'logic') return logic.phase + meta.trigger_index * logic.step;
   for (const c of cap.channels) {
     const k = c.acquisition.trigger_index;
-    if (c.kind === 'analog' && typeof k === 'number') return analogTick(c, cap.tickHz, k);
+    if (c.kind === 'analog' && typeof k === 'number') return alignedTick(c, cap.tickHz, k, v ? alignmentOf(v, c.name) : null);
   }
   const ns = meta.probe?.trigger_ns, start = meta.start_ns;
   if (typeof ns === 'number' && typeof start === 'number') return ((ns - start) * cap.tickHz[0]) / (cap.tickHz[1] * 1e9);
@@ -86,11 +88,14 @@ async function open(/** @type {File | { name: string, arrayBuffer: () => Promise
   try {
     const cap = await readCapture(new Uint8Array(await file.arrayBuffer()));
     state = {
-      cap, t0: 0, t1: Math.max(1, cap.ticks), cursor: null, lane: null, trigger: triggerTick(cap),
+      cap, t0: 0, t1: Math.max(1, cap.ticks), cursor: null, lane: null, trigger: null,
+      alignment: readAlignment(cap), aligned: true,
       edges: cap.channels.map((ch) => (ch.kind === 'logic' ? edges(ch) : [])),
       volts: cap.channels.map((ch) => (ch.kind === 'analog' ? volts(ch) : null)),
     };
     const params = new URLSearchParams(location.search);
+    state.aligned = params.get('aligned') !== '0';                    // &aligned=0: the probe's times
+    state.trigger = triggerTick(cap, state);
     const view = params.get('view')?.split(',').map(Number);          // &view=T0,T1 in ticks
     if (view?.length === 2 && view.every(Number.isFinite) && view[1] > view[0]) [state.t0, state.t1] = view;
     const cursor = params.get('cursor')?.split(',');                  // &cursor=TICK[,CHANNEL] (screenshots)
@@ -118,6 +123,30 @@ function showSummary(/** @type {string} */ name, /** @type {Capture} */ cap) {
     + (state?.trigger != null ? ` · trigger at ${fmtTime(state.trigger / tick, 4)}` : '');
   /** @type {HTMLElement} */ (h.querySelector('b')).textContent = name;
   el.append(h);
+  const alignment = state?.alignment;
+  if (state && alignment) {                   // attach/alignment.json from `wireskein align`
+    const v = state;
+    const label = document.createElement('label');
+    label.className = 'aligned';
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = v.aligned;
+    box.addEventListener('change', () => {
+      v.aligned = box.checked;
+      v.trigger = triggerTick(v.cap, v);
+      draw();
+    });
+    const first = [...alignment.values()][0];
+    const r = first.raw;
+    const us = (/** @type {unknown} */ x) => (typeof x === 'number' ? `${x >= 0 ? '+' : ''}${x.toFixed(1)} µs` : '?');
+    const text = document.createElement('span');
+    text.textContent = ` Analog aligned to ${first.reference} (via ${first.via}: start ${us(r.start_shift_us)}, `
+      + `${first.scale >= 1 ? '+' : ''}${((first.scale - 1) * 1e6).toFixed(1)} ppm`
+      + (typeof r.residual_ticks === 'number' ? `, residual ${fmtTime(r.residual_ticks / tick)}` : '')
+      + `) · ${[...alignment.keys()].join(', ')}`;
+    label.append(box, text);
+    el.append(label);
+  }
   if (cap.skipped.length) {
     const s = document.createElement('div');
     s.textContent = `Not shown (encodings this viewer does not read): ${cap.skipped.map((/** @type {{name: string, encoding: string}} */ c) => `${c.name} (${c.encoding})`).join(', ')}`;
@@ -235,12 +264,28 @@ function measure(v, index, tick) {
     }
     return out;
   }
-  const per = t / hz(ch.rateHz);
-  const k = Math.min(ch.n - 1, Math.max(0, Math.round((tick - analogTick(ch, cap.tickHz, 0)) / per)));
+  const { start, per } = timing(v, ch);
+  const k = Math.min(ch.n - 1, Math.max(0, Math.round((tick - start) / per)));
   const vv = v.volts[index];
   const value = vv ? `${vv[k].toFixed(4)} ${ch.unit}` + (ch.encoding === 'analog' ? ` (raw ${ch.values[k]})` : '')
     : `raw ${ch.values[k]}`;
-  return [`${ch.name}: ${value}`, `sample ${k} at ${fmtTime(analogTick(ch, cap.tickHz, k) / t, 4)}`];
+  const al = alignmentOf(v, ch.name);
+  return [`${ch.name}: ${value}`, `sample ${k} at ${fmtTime((start + k * per) / t, 4)}${al ? ' (aligned)' : ''}`];
+}
+
+// ---- analog timing ----
+
+/** The alignment in use for a channel (none when switched off). @param {View} v @param {string} name */
+function alignmentOf(v, name) {
+  return v.aligned ? v.alignment?.get(name) ?? null : null;
+}
+
+/** First sample's tick and ticks per sample of an analog channel, aligned when in use. @param {View} v @param {AnalogChannel} ch */
+function timing(v, ch) {
+  const a = alignmentOf(v, ch.name);
+  const start = alignedTick(ch, v.cap.tickHz, 0, a);
+  const per = (hz(v.cap.tickHz) / hz(ch.rateHz)) * (a ? a.scale : 1);
+  return { start, per };
 }
 
 // ---- drawing ----
@@ -410,8 +455,7 @@ function drawAnalog(g, v, index, ch, x, w, h, col) {
   g.font = '11px system-ui, sans-serif';
   g.fillText(`${+hi.toPrecision(4)}${unit}`, 4, pad - 2);
   g.fillText(`${+lo.toPrecision(4)}${unit}`, 4, h - 2);
-  const per = hz(cap.tickHz) / hz(ch.rateHz);
-  const start = analogTick(ch, cap.tickHz, 0);
+  const { start, per } = timing(v, ch);
   const k0 = Math.max(0, Math.floor((t0 - start) / per) - 1);
   const k1 = Math.min(vals.length - 1, Math.ceil((t1 - start) / per) + 1);
   g.strokeStyle = col.line;

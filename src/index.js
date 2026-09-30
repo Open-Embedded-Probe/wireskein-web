@@ -8,6 +8,7 @@
 export const VERSION = '0.0.3';
 
 export { ENCODINGS, FORMAT, analogTick, edges, levelAt, readWireskein, volts } from './fileformat.js';
+export { ALIGNMENT_FORMAT, alignedTick, readAlignment } from './align.js';
 export { readCapture, sniff } from './open.js';
 export { readSr } from './sr.js';
 export { listEntries, readEntry } from './zip.js';
