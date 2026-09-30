@@ -159,5 +159,5 @@ export async function readSr(input) {
   }
   for (const name of [...entries.keys()].filter((x) => x.startsWith('notes/')).sort()) notes.push(JSON.parse(await text(name)));
   const meta = { ...(extra.meta ?? {}), sr: { samplerate: dev.samplerate, unitsize } };
-  return { tickHz, ticks, meta, channels, skipped: [], attachments, notes };
+  return { tickHz, ticks, meta, channels, skipped: [], attachments, notes, parts: new Map() };
 }

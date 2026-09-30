@@ -26,6 +26,12 @@ apart by content, not by name). The file stays in the browser. You get:
   shows only its own samples, and a shaded band before each of its edges shows where the change happened;
 - analog channels on the aligned time when the file has an alignment from `wireskein align` (a checkbox switches
   back to the probe's times);
+- decoding annotations (I2C transactions, UART characters, ...) in rows under their data line, from the file's
+  `decode/annotations.json` (`wireskein annotate --save`) or, under `wireskein gui`, decoded on request;
+- markers: M puts one at the mouse, the panel goes to or removes them; they are saved into the file under
+  `wireskein gui`;
+- under `wireskein gui`, the run's check results for a capture of a recorded run (OK / NG and why), and a form that
+  appends a note to the file;
 - the capture's metadata, each channel's acquisition settings (pin, input range, reference, ...), attachments and notes.
 
 ## Library
