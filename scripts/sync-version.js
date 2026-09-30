@@ -25,9 +25,11 @@ export function releaseChangelog(changelog, version) {
 
 /** @param {string} source @param {string} version */
 export function syncSourceVersion(source, version) {
-  const next = source.replace(/export const VERSION = '[^']+';/, `export const VERSION = '${version}';`);
-  if (next === source) throw new Error('src/index.js VERSION declaration was not found.');
-  return next;
+  const pattern = /export const VERSION = '[^']+';/;
+  // test for the declaration, not for a change: `npm version X --allow-same-version`
+  // (a first release of the version already in package.json) leaves the source as it is
+  if (!pattern.test(source)) throw new Error('src/index.js VERSION declaration was not found.');
+  return source.replace(pattern, `export const VERSION = '${version}';`);
 }
 
 async function main() {
