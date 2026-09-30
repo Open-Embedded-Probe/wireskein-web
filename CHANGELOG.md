@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.0.6
+
 - (EN) **Breaking (WireSkein's decisions toward a freeze; not frozen yet):** reads the `wireskein/1` format (wireskein 0.0.13 or later); beta `wireskein/0` files are refused with a clear message. `Capture.id` (the capture's id) replaces `captureJson`; `fileAlignment` matches another file by its id (`capture_id`), so a converted reference still matches. A .sr's sidecar is `wireskein/sr-extra.json` (`wireskein-sr-extra/1`). The package exports only its root (`./src/*` is gone); the README lists the JavaScript names against the file's keys.
 - (JA) **互換のない変更（WireSkein の凍結に向けた決定。まだ凍結していない）:** `wireskein/1` の形式を読む（wireskein 0.0.13 以降）。β の `wireskein/0` のファイルは、分かるメッセージで断る。`captureJson` に代えて `Capture.id`（キャプチャの ID）。`fileAlignment` は別のファイルを ID（`capture_id`）で見分けるので、基準を変換しても合う。.sr の付加情報は `wireskein/sr-extra.json`（`wireskein-sr-extra/1`）。パッケージが出すのは入口だけ（`./src/*` はやめた）。README に、JavaScript の名前とファイルのキーの対応を載せた。
 ## 0.0.5
