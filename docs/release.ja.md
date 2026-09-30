@@ -51,10 +51,18 @@ npm version 0.0.1 --allow-same-version
 
 ## 公開と push
 
-npm の認証、package の名前、公開するアカウントを確かめてから、実行します。
+npm にログインし、アカウントを確かめます（マシンごとに 1 回。ログインは `~/.npmrc` に残ります）。
 
 ```sh
-npm publish --access public
+npm login                      # ブラウザが開く（または、ユーザー名、パスワード、ワンタイムコードを聞かれる）
+npm whoami                     # 公開に使うアカウント
+npm owner ls wireskein-web     # 最初のリリースの後: 公開できるアカウントの一覧
+```
+
+そのあと、公開して push します。
+
+```sh
+npm publish --access public    # 二要素認証が有効なら、ワンタイムコードを聞かれる
 git push --follow-tags
 ```
 
