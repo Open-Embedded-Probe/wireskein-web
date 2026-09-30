@@ -18,7 +18,10 @@ Status: **beta**.
 Open the [viewer](https://open-embedded-probe.github.io/wireskein-web/) and drop a `.wsc` file. The file stays in the
 browser. You get:
 
-- logic and analog lanes, zoom (wheel) and pan (drag), double-click to fit;
+- logic and analog lanes on a time axis; zoom with the wheel or + −, scroll in time with Shift + wheel, a trackpad
+  swipe, drag or ← →, double-click or Home to fit, and an overview strip of the whole capture;
+- hover a logic lane to measure the pulse under the mouse and the next one: widths, period, frequency and duty;
+  hover an analog lane for the sample's value;
 - dots on the samples the probe really took; a channel recorded at a lower rate (a probe that decimates some channels)
   shows only its own samples, and a shaded band before each of its edges shows where the change happened;
 - the capture's metadata, each channel's acquisition settings (pin, input range, reference, ...), attachments and notes.

@@ -22,12 +22,15 @@
     <section id="drop" class="drop">Drop a .wsc file here</section>
     <section id="summary" class="summary" hidden></section>
     <section id="view" class="view" hidden>
-      <div class="hint">Wheel: zoom · drag: pan · double-click: fit. Dots mark the samples the probe really took;
-        shaded bands before an edge show where it happened on a decimated channel.</div>
+      <div class="hint">Wheel: zoom · Shift + wheel, drag, ← →: scroll · + −: zoom · double-click, Home: fit ·
+        the strip under the time axis: the whole capture. Hover a lane to measure its pulses.
+        Dots mark the samples the probe really took; shaded bands before an edge show where it happened on a
+        decimated channel.</div>
       <div id="lanes"></div>
     </section>
     <section id="details" class="details" hidden></section>
   </main>
+  <div id="tip" class="tip" hidden></div>
   <script type="module" src="./app.js"></script>
 </body>
 </html>
