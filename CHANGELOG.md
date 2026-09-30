@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.0.5
+
 - (EN) Annotation rows show how sure the analysis is: a row not "confirmed" is faded, with its verdict and score by its name.
 - (JA) 注釈の行に、判定の確かさを示す: "confirmed" でない行は薄く描き、名前の横に判定と点を出す。
 - (EN) An added file's decoding annotations (stored, or decoded under `wireskein gui`) and markers come along on the same time: rows under its channels with its prefix, markers dashed (shown, not saved into this file).
