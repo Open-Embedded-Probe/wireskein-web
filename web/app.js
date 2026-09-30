@@ -31,6 +31,8 @@ const LABEL_PX = 110;      // about this many pixels between time labels
  * @property {AnnotationRow[]} rows               decoding annotations (sorted by start)
  * @property {number | null} row                  annotation row under the mouse
  * @property {Marker[]} markers
+ * @property {Marker[]} otherMarkers              markers of added files, on this time (shown, not saved here)
+ * @property {AnnotationRow[]} otherRows           annotation rows of added files, on this time
  * @property {boolean} dirty                      markers changed since loaded / saved
  * @property {string | null} server               the file's path on `wireskein gui` (null: no server)
  * @property {string} name                        the file's name
@@ -105,7 +107,7 @@ async function open(file, rel = null) {
     state = {
       cap, t0: 0, t1: Math.max(1, cap.ticks), cursor: null, lane: null, trigger: null,
       alignment: readAlignment(cap), aligned: true, rows: [], row: null,
-      markers: readMarkers(cap) ?? [], dirty: false, server: null, name: file.name, base: cap, others: [],
+      markers: readMarkers(cap) ?? [], dirty: false, server: null, name: file.name, base: cap, others: [], otherMarkers: [], otherRows: [],
       edges: cap.channels.map((ch) => (ch.kind === 'logic' ? edges(ch) : [])),
       volts: cap.channels.map((ch) => (ch.kind === 'analog' ? volts(ch) : null)),
     };
@@ -131,7 +133,8 @@ async function open(file, rel = null) {
       const u = new URL(withFile, location.href);
       if (u.origin !== location.origin) continue;
       const r = await fetch(u);
-      if (r.ok) await addFile(state, { name: decodeURIComponent(u.pathname.split('/').pop() ?? 'other'), arrayBuffer: () => r.arrayBuffer() });
+      const rel = u.pathname.startsWith('/files/') ? decodeURIComponent(u.pathname.slice(7)) : null;
+      if (r.ok) await addFile(state, { name: decodeURIComponent(u.pathname.split('/').pop() ?? 'other'), arrayBuffer: () => r.arrayBuffer() }, rel);
     }
   } catch (error) {
     $('summary').hidden = false;
@@ -284,16 +287,37 @@ function annotationLane(lanes, r, k) {
 // ---- another probe's capture, on this one's time (wireskein-format §5.1.1) ----
 
 /**
- * Add another file's channels, on this file's ticks when it holds an alignment onto this file (wireskein align --to).
+ * Add another file's channels, on this file's ticks when it holds an alignment onto this file (wireskein align --to);
+ * its decoding annotations and markers come along on the same time.
  * @param {View} v @param {{ name: string, arrayBuffer: () => Promise<ArrayBuffer> }} file
+ * @param {string | null} [rel]   its path on `wireskein gui`, to decode it there when it holds no annotations
  */
-async function addFile(v, file) {
+async function addFile(v, file, rel = null) {
   const other = await readCapture(new Uint8Array(await file.arrayBuffer()));
   const { entry, why } = await fileAlignment(other, v.base, v.name);
   const stem = file.name.replace(/\.[^.]*$/, '');
   const prefix = `${stem}:`;
   const channels = onto(v.base, other, entry, prefix);
   v.others.push({ name: file.name, prefix, entry, why });
+  const a = entry ? entry.offset_ticks : 0;
+  const b = entry ? entry.scale : hz(v.base.tickHz) / hz(other.tickHz);
+  const at = (/** @type {number} */ t) => a + b * t;
+  let rows = readAnnotations(other);
+  if (!rows && rel && v.server) {
+    try {
+      const r = await fetch(api('/api/annotations', rel));
+      if (r.ok) rows = readAnnotations(await r.json());
+    } catch { /* shown without them */ }
+  }
+  for (const r of rows ?? []) {
+    v.otherRows.push({ ...r, name: prefix + r.name, near: r.near ? prefix + r.near : undefined,
+                  items: r.items.map((it) => ({ ...it, s: at(it.s), e: it.e !== undefined ? at(it.e) : undefined }))
+                    .sort((x, y) => x.s - y.s) });
+  }
+  v.rows = [...v.rows.filter((r) => !v.otherRows.includes(r) && !r.name.startsWith(prefix)), ...v.otherRows];
+  for (const m of readMarkers(other) ?? []) {
+    v.otherMarkers.push({ ...m, label: prefix + m.label, t: at(m.t), end: m.end !== undefined ? at(m.end) : undefined });
+  }
   const ends = channels.map((c) => (c.kind === 'logic' ? c.phase + c.n * c.step
     : c.t0Ticks[0] / c.t0Ticks[1] + (c.n * v.base.tickHz[0] * c.rateHz[1]) / (v.base.tickHz[1] * c.rateHz[0])));
   v.cap = { ...v.cap, channels: [...v.cap.channels, ...channels], ticks: Math.max(v.cap.ticks, ...ends) };
@@ -324,9 +348,9 @@ async function send(method, url, body) {
   return r.json();
 }
 
-/** @param {View} v @param {AnnotationRow[]} rows */
+/** This file's annotation rows (the added files' stay). @param {View} v @param {AnnotationRow[]} rows */
 function setRows(v, rows) {
-  v.rows = rows.map((r) => ({ ...r, items: [...r.items].sort((a, b) => a.s - b.s) }));
+  v.rows = [...rows.map((r) => ({ ...r, items: [...r.items].sort((a, b) => a.s - b.s) })), ...v.otherRows];
 }
 
 /** Annotations (stored or decoded now), the run's checks for this capture, and the note form. @param {View} v */
@@ -357,10 +381,11 @@ async function loadFromServer(v) {
 function showDecodeState(v, stored) {
   const el = $('summary');
   el.querySelector('.decode')?.remove();
-  if (!v.rows.length) return;
+  const own = v.rows.filter((r) => !v.otherRows.includes(r));
+  if (!own.length) return;
   const div = document.createElement('div');
   div.className = 'decode';
-  div.textContent = `Decoded: ${v.rows.map((r) => `${r.name} (${r.items.length})`).join(', ')}`
+  div.textContent = `Decoded: ${own.map((r) => `${r.name} (${r.items.length})`).join(', ')}`
     + (stored ? ' · stored in the file' : ' · decoded now ');
   if (!stored && v.server) {
     const b = document.createElement('button');
@@ -664,7 +689,7 @@ function draw() {
 /** Shaded marker spans (behind the traces). @param {CanvasRenderingContext2D} g @param {View} v @param {(t: number) => number} x @param {number} h @param {Colors} col */
 function drawMarkerSpans(g, v, x, h, col) {
   g.fillStyle = col.span;
-  for (const m of v.markers) {
+  for (const m of [...v.markers, ...v.otherMarkers]) {
     if (m.end !== undefined) g.fillRect(x(m.t), 0, x(m.end) - x(m.t), h);
   }
 }
@@ -678,7 +703,8 @@ function drawMarkerLines(g, v, x, h, col, ruler) {
   g.strokeStyle = col.marker;
   g.fillStyle = col.marker;
   g.lineWidth = 1.5;
-  for (const m of v.markers) {
+  for (const m of [...v.markers, ...v.otherMarkers]) {
+    g.setLineDash(v.markers.includes(m) ? [] : [2, 3]);             // an added file's: dashed
     for (const tick of m.end !== undefined ? [m.t, m.end] : [m.t]) {
       const px = Math.round(x(tick)) + 0.5;
       g.beginPath(); g.moveTo(px, ruler ? 20 : 0); g.lineTo(px, h); g.stroke();
@@ -688,6 +714,7 @@ function drawMarkerLines(g, v, x, h, col, ruler) {
       g.fillText(m.label, x(m.t) + 3, 30);
     }
   }
+  g.setLineDash([]);
   g.font = '12px system-ui, sans-serif';
 }
 
