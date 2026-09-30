@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.0.2
+
 - (EN) Reads sigrok `.sr` too: `readCapture(bytes)` opens a WireSkein file or a `.sr` by content (`sniff(bytes)`, `readSr(bytes)`), and so does the viewer. A `.sr` written by wireskein gets its channels back at their own rates (the real step, the raw analog values, the metadata, attachments and notes); any other `.sr` has every named channel at the file's rate, analog as volts.
 - (JA) sigrok の `.sr` も読む: `readCapture(bytes)` は、中身で WireSkein のファイルか `.sr` かを見分けて読む（`sniff(bytes)`、`readSr(bytes)`）。ビューアも同じ。wireskein が書いた `.sr` は、チャンネルを自分のレートに戻す（本当の `step`、アナログの生の値、メタ情報、添付、メモ）。ほかの `.sr` は、名前の付いたチャンネルをファイルのレートで、アナログは電圧で読む。
 - (EN) **Breaking: reads the `.wireskein` format (`wireskein/0`, wireskein 0.0.8 or later)** instead of `.wsc` (`wireskein-capture/0`), whose extension is Windows Script Component's. `readWsc` is now `readWireskein`. Files are told apart by their content (`wireskein.json`), not their name; other files, newer versions and files without a capture are refused with a clear message.
