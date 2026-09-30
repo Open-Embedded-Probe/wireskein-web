@@ -1,15 +1,18 @@
 // @ts-check
-import { alignedTick, edges, levelAt, readAlignment, readCapture, VERSION, volts } from './wireskein-web.js';
+import { alignedTick, edges, levelAt, readAlignment, readAnnotations, readCapture, readMarkers, VERSION, volts } from './wireskein-web.js';
 
 /** @typedef {import('../src/fileformat.js').Capture} Capture */
 /** @typedef {import('../src/fileformat.js').LogicChannel} LogicChannel */
 /** @typedef {import('../src/fileformat.js').AnalogChannel} AnalogChannel */
+/** @typedef {import('../src/parts.js').Marker} Marker */
+/** @typedef {import('../src/parts.js').AnnotationRow} AnnotationRow */
 
 const $ = (/** @type {string} */ id) => /** @type {HTMLElement} */ (document.getElementById(id));
 const LOGIC_H = 56;
 const ANALOG_H = 150;
 const RULER_H = 36;
 const OVERVIEW_H = 16;
+const ANNOTATION_H = 24;
 const DOT_PX = 6;          // draw sample dots when samples are at least this far apart
 const LABEL_PX = 110;      // about this many pixels between time labels
 
@@ -25,6 +28,12 @@ const LABEL_PX = 110;      // about this many pixels between time labels
  * @property {number | null} trigger             tick of the trigger, when the probe reported one
  * @property {Map<string, import('../src/align.js').Alignment> | null} alignment   from attach/alignment.json
  * @property {boolean} aligned                    draw the analog channels on the aligned time
+ * @property {AnnotationRow[]} rows               decoding annotations (sorted by start)
+ * @property {number | null} row                  annotation row under the mouse
+ * @property {Marker[]} markers
+ * @property {boolean} dirty                      markers changed since loaded / saved
+ * @property {string | null} server               the file's path on `wireskein gui` (null: no server)
+ * @property {string} name                        the file's name
  */
 
 /** @type {View | null} */
@@ -84,12 +93,17 @@ function triggerTick(cap, /** @type {View | null} */ v = null) {
   return null;
 }
 
-async function open(/** @type {File | { name: string, arrayBuffer: () => Promise<ArrayBuffer> }} */ file) {
+/**
+ * @param {File | { name: string, arrayBuffer: () => Promise<ArrayBuffer> }} file
+ * @param {string | null} [rel]   its path on `wireskein gui` (/files/<rel>), when it came from there
+ */
+async function open(file, rel = null) {
   try {
     const cap = await readCapture(new Uint8Array(await file.arrayBuffer()));
     state = {
       cap, t0: 0, t1: Math.max(1, cap.ticks), cursor: null, lane: null, trigger: null,
-      alignment: readAlignment(cap), aligned: true,
+      alignment: readAlignment(cap), aligned: true, rows: [], row: null,
+      markers: readMarkers(cap) ?? [], dirty: false, server: null, name: file.name,
       edges: cap.channels.map((ch) => (ch.kind === 'logic' ? edges(ch) : [])),
       volts: cap.channels.map((ch) => (ch.kind === 'analog' ? volts(ch) : null)),
     };
@@ -104,9 +118,13 @@ async function open(/** @type {File | { name: string, arrayBuffer: () => Promise
       const k = cap.channels.findIndex((c) => c.name === cursor[1]);
       state.lane = k >= 0 ? k : null;
     }
+    state.server = rel && (await hasServer()) ? rel : null;
+    setRows(state, readAnnotations(cap) ?? []);
     showSummary(file.name, cap);
     buildLanes(cap);
+    showMarkers();
     draw();
+    if (state.server) loadFromServer(state);
   } catch (error) {
     $('summary').hidden = false;
     $('summary').textContent = `${file.name}: ${error instanceof Error ? error.message : error}`;
@@ -152,6 +170,11 @@ function showSummary(/** @type {string} */ name, /** @type {Capture} */ cap) {
     s.textContent = `Not shown (encodings this viewer does not read): ${cap.skipped.map((/** @type {{name: string, encoding: string}} */ c) => `${c.name} (${c.encoding})`).join(', ')}`;
     el.append(s);
   }
+  showDetails(cap);
+}
+
+/** Metadata, acquisition settings, attachments and notes. @param {Capture} cap */
+function showDetails(cap) {
   const d = $('details');
   d.hidden = false;
   d.innerHTML = '';
@@ -210,7 +233,207 @@ function buildLanes(/** @type {Capture} */ cap) {
     canvas.dataset.index = String(i);
     lanes.append(lane);
     attachInput(canvas, i);
+    state?.rows.forEach((r, k) => { if (r.near === ch.name) annotationLane(lanes, r, k); });
   }
+  const names = new Set(cap.channels.map((c) => c.name));
+  state?.rows.forEach((r, k) => { if (!r.near || !names.has(r.near)) annotationLane(lanes, r, k); });
+}
+
+/** A lane for one row of decoding annotations. @param {HTMLElement} lanes @param {AnnotationRow} r @param {number} k */
+function annotationLane(lanes, r, k) {
+  const { lane, canvas } = row(r.name, `${r.items.length} items`, ANNOTATION_H, 'annotation');
+  canvas.dataset.row = String(k);
+  lanes.append(lane);
+  attachInput(canvas, null, k);
+}
+
+// ---- wireskein gui: annotations, checks, notes, markers ----
+
+/** Whether this page is served by `wireskein gui` (its API answers). */
+async function hasServer() {
+  try {
+    const r = await fetch('/api/version');
+    return r.ok && typeof (await r.json()).api === 'number';
+  } catch { return false; }
+}
+
+/** @param {string} path @param {string} rel */
+const api = (path, rel) => `${path}?file=${encodeURIComponent(rel)}`;
+
+/** @param {string} method @param {string} url @param {unknown} body */
+async function send(method, url, body) {
+  const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error(`${r.status} ${(await r.text()).trim()}`);
+  return r.json();
+}
+
+/** @param {View} v @param {AnnotationRow[]} rows */
+function setRows(v, rows) {
+  v.rows = rows.map((r) => ({ ...r, items: [...r.items].sort((a, b) => a.s - b.s) }));
+}
+
+/** Annotations (stored or decoded now), the run's checks for this capture, and the note form. @param {View} v */
+async function loadFromServer(v) {
+  const rel = /** @type {string} */ (v.server);
+  showChecks(null);
+  addNoteForm(v);
+  try {
+    const r = await fetch(api('/api/annotations', rel));
+    if (r.ok) {
+      const doc = await r.json();
+      const rows = readAnnotations(doc);
+      if (rows && state === v) {
+        setRows(v, rows);
+        buildLanes(v.cap);
+        draw();
+        showDecodeState(v, doc.stored === true);
+      }
+    }
+  } catch { /* no annotations: the lanes stay as they are */ }
+  try {
+    const r = await fetch(api('/api/checks', rel));
+    if (r.ok && state === v) showChecks(await r.json());
+  } catch { /* not in a run */ }
+}
+
+/** "decoded now / stored in the file", with a button to store them. @param {View} v @param {boolean} stored */
+function showDecodeState(v, stored) {
+  const el = $('summary');
+  el.querySelector('.decode')?.remove();
+  if (!v.rows.length) return;
+  const div = document.createElement('div');
+  div.className = 'decode';
+  div.textContent = `Decoded: ${v.rows.map((r) => `${r.name} (${r.items.length})`).join(', ')}`
+    + (stored ? ' · stored in the file' : ' · decoded now ');
+  if (!stored && v.server) {
+    const b = document.createElement('button');
+    b.textContent = 'Store in the file';
+    b.addEventListener('click', async () => {
+      b.disabled = true;
+      try { await send('POST', api('/api/annotations', /** @type {string} */ (v.server)), {}); showDecodeState(v, true); }
+      catch (error) { b.disabled = false; b.textContent = `Failed: ${error instanceof Error ? error.message : error}`; }
+    });
+    div.append(b);
+  }
+  el.append(div);
+}
+
+/** The run's check results for this capture. @param {{ run: string | null, results: any[] } | null} doc */
+function showChecks(doc) {
+  const el = $('checks');
+  el.innerHTML = '';
+  el.hidden = !doc?.run;
+  if (!doc?.run) return;
+  const h = document.createElement('div');
+  const ng = doc.results.filter((r) => r.ok === false).length;
+  h.innerHTML = '<b>Checks</b> ';
+  h.append(`run ${doc.run} · ${doc.results.length} on this capture` + (ng ? ` · ${ng} NG` : ''));
+  el.append(h);
+  const table = document.createElement('table');
+  for (const r of doc.results) {
+    const tr = table.insertRow();
+    const mark = tr.insertCell();
+    mark.textContent = r.ok === true ? 'OK' : r.ok === false ? 'NG' : '--';
+    mark.className = r.ok === true ? 'ok' : r.ok === false ? 'ng' : 'unchecked';
+    tr.insertCell().textContent = r.path;
+    tr.insertCell().textContent = r.check;
+    tr.insertCell().textContent = r.reason || '';
+  }
+  el.append(table);
+}
+
+/** A form under the details that appends a note to the file. @param {View} v */
+function addNoteForm(v) {
+  const d = $('details');
+  d.querySelector('.note-form')?.remove();
+  const form = document.createElement('form');
+  form.className = 'note-form';
+  const input = document.createElement('input');
+  input.placeholder = 'Add a note to the file (append-only)';
+  const b = document.createElement('button');
+  b.textContent = 'Add note';
+  form.append(input, b);
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const text = input.value.trim();
+    if (!text || !v.server) return;
+    try {
+      await send('POST', api('/api/note', v.server), { text });
+      v.cap.notes.push({ time: new Date().toISOString(), content: text, by: 'viewer' });
+      showDetails(v.cap);
+      addNoteForm(v);
+    } catch (error) { input.value = `${text}  (not added: ${error instanceof Error ? error.message : error})`; }
+  });
+  d.append(form);
+}
+
+/** The markers panel: go to, remove, save. */
+function showMarkers() {
+  const el = $('markers');
+  el.innerHTML = '';
+  const v = state;
+  if (!v) return;
+  const t = hz(v.cap.tickHz);
+  el.hidden = false;
+  const h = document.createElement('div');
+  h.innerHTML = '<b>Markers</b> ';
+  h.append(v.markers.length ? '' : 'none yet: press M to put one at the mouse position');
+  if (v.dirty) {
+    if (v.server) {
+      const b = document.createElement('button');
+      b.textContent = 'Save to the file';
+      b.addEventListener('click', async () => {
+        try {
+          await send('PUT', api('/api/markers', /** @type {string} */ (v.server)), { markers: v.markers });
+          v.dirty = false;
+          showMarkers();
+        } catch (error) { b.textContent = `Failed: ${error instanceof Error ? error.message : error}`; }
+      });
+      h.append(b);
+    } else {
+      h.append(' (changed here only: open the file through wireskein gui to save markers)');
+    }
+  }
+  el.append(h);
+  const sorted = [...v.markers].sort((a, b) => a.t - b.t);
+  for (const m of sorted) {
+    const row = document.createElement('div');
+    row.className = 'marker-row';
+    const go = document.createElement('button');
+    go.textContent = m.label;
+    go.title = 'Go there';
+    go.addEventListener('click', () => {
+      const span = v.t1 - v.t0;
+      const mid = m.end !== undefined ? (m.t + m.end) / 2 : m.t;
+      v.t0 = mid - span / 2;
+      v.t1 = mid + span / 2;
+      draw();
+    });
+    const when = document.createElement('span');
+    when.textContent = ` ${fmtTime(m.t / t, 4)}` + (m.end !== undefined ? ` – ${fmtTime(m.end / t, 4)}` : '')
+      + (m.note ? ` · ${m.note}` : '');
+    const del = document.createElement('button');
+    del.textContent = '×';
+    del.title = 'Remove';
+    del.addEventListener('click', () => {
+      v.markers = v.markers.filter((x) => x !== m);
+      v.dirty = true;
+      showMarkers();
+      draw();
+    });
+    row.append(go, when, del);
+    el.append(row);
+  }
+}
+
+/** Put a marker at a tick (asks for its name). @param {View} v @param {number} tick */
+function addMarker(v, tick) {
+  const label = prompt('Marker name', `M${v.markers.length + 1}`);
+  if (label === null || !label.trim()) return;
+  v.markers.push({ t: Math.round(tick), label: label.trim(), by: 'viewer', time: new Date().toISOString() });
+  v.dirty = true;
+  showMarkers();
+  draw();
 }
 
 // ---- measuring ----
@@ -294,7 +517,9 @@ function colors() {
   const s = getComputedStyle(document.body);
   const c = (/** @type {string} */ n) => s.getPropertyValue(n).trim();
   return { line: c('--line'), band: c('--band'), grid: c('--grid'), muted: c('--muted'), cursor: c('--cursor'),
-           pulse: c('--pulse'), window: c('--window'), track: c('--track'), trigger: c('--trigger') };
+           pulse: c('--pulse'), window: c('--window'), track: c('--track'), trigger: c('--trigger'),
+           marker: c('--marker'), span: c('--span'), ok: c('--anno'), warn: c('--anno-warn'), error: c('--anno-error'),
+           annoText: c('--anno-text') };
 }
 /** @typedef {ReturnType<typeof colors>} Colors */
 
@@ -322,6 +547,7 @@ function draw() {
     const role = canvas.dataset.role;
     if (role === 'overview') { drawOverview(g, v, w, h, col); continue; }
     const x = (/** @type {number} */ tick) => ((tick - v.t0) / (v.t1 - v.t0)) * w;
+    drawMarkerSpans(g, v, x, h, col);
     // grid lines (and on the ruler, labels) every 1, 2 or 5 of a unit
     const step = niceStep((v.t1 - v.t0) / t, w);
     g.strokeStyle = col.grid;
@@ -349,8 +575,19 @@ function draw() {
         g.fillStyle = col.muted;
       }
     }
+    drawMarkerLines(g, v, x, h, col, role === 'ruler');
     if (role === 'ruler') {
       if (v.cursor !== null) drawCursorTime(g, x(v.cursor), w, fmtTime(v.cursor / t), col);
+      continue;
+    }
+    if (role === 'annotation') {
+      drawAnnotations(g, v, v.rows[Number(canvas.dataset.row)], x, w, h, col);
+      if (v.cursor !== null) {
+        const px = Math.round(x(v.cursor)) + 0.5;
+        g.strokeStyle = col.cursor;
+        g.lineWidth = 1;
+        g.beginPath(); g.moveTo(px, 0); g.lineTo(px, h); g.stroke();
+      }
       continue;
     }
     const index = Number(canvas.dataset.index);
@@ -365,6 +602,88 @@ function draw() {
     }
   }
   drawTip();
+}
+
+/** Shaded marker spans (behind the traces). @param {CanvasRenderingContext2D} g @param {View} v @param {(t: number) => number} x @param {number} h @param {Colors} col */
+function drawMarkerSpans(g, v, x, h, col) {
+  g.fillStyle = col.span;
+  for (const m of v.markers) {
+    if (m.end !== undefined) g.fillRect(x(m.t), 0, x(m.end) - x(m.t), h);
+  }
+}
+
+/**
+ * Marker lines; on the ruler, with their names.
+ * @param {CanvasRenderingContext2D} g @param {View} v @param {(t: number) => number} x @param {number} h
+ * @param {Colors} col @param {boolean} ruler
+ */
+function drawMarkerLines(g, v, x, h, col, ruler) {
+  g.strokeStyle = col.marker;
+  g.fillStyle = col.marker;
+  g.lineWidth = 1.5;
+  for (const m of v.markers) {
+    for (const tick of m.end !== undefined ? [m.t, m.end] : [m.t]) {
+      const px = Math.round(x(tick)) + 0.5;
+      g.beginPath(); g.moveTo(px, ruler ? 20 : 0); g.lineTo(px, h); g.stroke();
+    }
+    if (ruler) {
+      g.font = 'bold 11px system-ui, sans-serif';
+      g.fillText(m.label, x(m.t) + 3, 30);
+    }
+  }
+  g.font = '12px system-ui, sans-serif';
+}
+
+/** The item of a row at a tick, or null (binary search on the start). @param {AnnotationRow} r @param {number} tick @param {number} slack ticks */
+function itemAt(r, tick, slack) {
+  let lo = 0, hi = r.items.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (r.items[m].s <= tick + slack) lo = m + 1; else hi = m; }
+  for (let i = lo - 1; i >= 0 && i >= lo - 8; i--) {
+    const it = r.items[i];
+    if (tick <= (it.e ?? it.s) + slack) return it;
+  }
+  return null;
+}
+
+/**
+ * One row of decoding annotations: boxes with their text where it fits, coloured by level.
+ * @param {CanvasRenderingContext2D} g @param {View} v @param {AnnotationRow} r
+ * @param {(t: number) => number} x @param {number} w @param {number} h @param {Colors} col
+ */
+function drawAnnotations(g, v, r, x, w, h, col) {
+  if (!r) return;
+  const items = r.items;
+  let lo = 0, hi = items.length;                 // first item that may still be visible
+  while (lo < hi) { const m = (lo + hi) >> 1; if ((items[m].e ?? items[m].s) < v.t0 - (v.t1 - v.t0)) lo = m + 1; else hi = m; }
+  g.font = '11px ui-monospace, monospace';
+  g.textBaseline = 'middle';
+  let lastPx = -1;
+  for (let i = Math.max(0, lo - 64); i < items.length; i++) {
+    const it = items[i];
+    if (it.s > v.t1) break;
+    const a = x(it.s), b = x(it.e ?? it.s);
+    if (b < 0) continue;
+    const fill = it.level === 'error' ? col.error : it.level === 'warn' ? col.warn : col.ok;
+    if (b - a < 3) {                               // too narrow for a box: a tick, one per pixel
+      const px = Math.round(a);
+      if (px === lastPx) continue;
+      lastPx = px;
+      g.fillStyle = fill;
+      g.fillRect(px, 4, 1.5, h - 8);
+      continue;
+    }
+    g.fillStyle = fill;
+    g.fillRect(a, 3, b - a - 1, h - 6);
+    g.strokeStyle = col.line;
+    g.lineWidth = 0.5;
+    g.strokeRect(a + 0.25, 3.25, b - a - 1.5, h - 6.5);
+    const tw = g.measureText(it.text).width;
+    if (tw + 6 < b - a) {
+      g.fillStyle = col.annoText;
+      g.fillText(it.text, Math.max(a, 0) + 3 > b - tw - 3 ? a + 3 : Math.max(a, 0) + 3, h / 2);
+    }
+  }
+  g.textBaseline = 'alphabetic';
 }
 
 /** @param {CanvasRenderingContext2D} g @param {number} px @param {number} w @param {string} label @param {Colors} col */
@@ -500,14 +819,31 @@ function drawOverview(g, v, w, h, col) {
   g.fillRect(Math.min(a, w - 4), 1, Math.max(4, b - a), h - 2);
 }
 
+/** The tooltip's lines for an annotation row. @param {View} v @param {number} k @param {number} tick @param {number} slack */
+function describeItem(v, k, tick, slack) {
+  const r = v.rows[k];
+  const it = r && itemAt(r, tick, slack);
+  if (!it) return null;
+  const t = hz(v.cap.tickHz);
+  const out = [`${r.name}: ${it.text}`, `${fmtTime(it.s / t, 4)}` + (it.e !== undefined ? ` – ${fmtTime(it.e / t, 4)} (${fmtTime((it.e - it.s) / t)})` : '')];
+  if (it.level && it.level !== 'ok') out.push(it.level);
+  if (it.detail !== undefined) out.push(JSON.stringify(it.detail).slice(0, 160));
+  return out;
+}
+
 function drawTip() {
   const tip = $('tip');
-  if (!state || state.cursor === null || state.lane === null) { tip.hidden = true; return; }
-  const canvas = /** @type {HTMLCanvasElement | null} */ (document.querySelector(`#lanes canvas[data-index="${state.lane}"]`));
+  if (!state || state.cursor === null || (state.lane === null && state.row === null)) { tip.hidden = true; return; }
+  const sel = state.lane !== null ? `#lanes canvas[data-index="${state.lane}"]` : `#lanes canvas[data-row="${state.row}"]`;
+  const canvas = /** @type {HTMLCanvasElement | null} */ (document.querySelector(sel));
   if (!canvas) { tip.hidden = true; return; }
+  const slack = ((state.t1 - state.t0) / canvas.clientWidth) * 3;
+  const lines = state.lane !== null ? measure(state, state.lane, state.cursor)
+    : describeItem(state, /** @type {number} */ (state.row), state.cursor, slack);
+  if (!lines) { tip.hidden = true; return; }
   tip.hidden = false;
   tip.innerHTML = '';
-  for (const [i, line] of measure(state, state.lane, state.cursor).entries()) {
+  for (const [i, line] of lines.entries()) {
     const d = document.createElement(i ? 'div' : 'b');
     d.textContent = line;
     tip.append(d);
@@ -543,8 +879,8 @@ function fit() {
   state.t1 = Math.max(1, state.cap.ticks);
 }
 
-/** Wheel, drag and hover on a row. @param {HTMLCanvasElement} canvas @param {number | null} index */
-function attachInput(canvas, index) {
+/** Wheel, drag and hover on a row. @param {HTMLCanvasElement} canvas @param {number | null} index @param {number | null} [row] */
+function attachInput(canvas, index, row = null) {
   const tickAt = (/** @type {number} */ offsetX) => {
     const v = /** @type {View} */ (state);
     return v.t0 + (offsetX / canvas.clientWidth) * (v.t1 - v.t0);
@@ -574,12 +910,14 @@ function attachInput(canvas, index) {
     }
     state.cursor = tickAt(event.offsetX);
     state.lane = index;
+    state.row = row;
     redraw();
   });
   canvas.addEventListener('pointerleave', () => {
     if (!state || from !== null) return;
     state.cursor = null;
     state.lane = null;
+    state.row = null;
     redraw();
   });
   canvas.addEventListener('dblclick', () => { fit(); redraw(); });
@@ -611,6 +949,8 @@ document.addEventListener('keydown', (event) => {
     '+': () => zoom(0.8, center), '=': () => zoom(0.8, center),
     '-': () => zoom(1.25, center), _: () => zoom(1.25, center),
     Home: fit, 0: fit,
+    m: () => { if (state && state.cursor !== null) addMarker(state, state.cursor); },
+    M: () => { if (state && state.cursor !== null) addMarker(state, state.cursor); },
   };
   const f = keys[event.key];
   if (!f) return;
@@ -641,7 +981,8 @@ if (fileParam) {
   if (url.origin === location.origin) {
     fetch(url).then((r) => {
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-      return open({ name: url.pathname.split('/').pop() ?? 'capture.wireskein', arrayBuffer: () => r.arrayBuffer() });
+      const rel = url.pathname.startsWith('/files/') ? decodeURIComponent(url.pathname.slice(7)) : null;
+      return open({ name: url.pathname.split('/').pop() ?? 'capture.wireskein', arrayBuffer: () => r.arrayBuffer() }, rel);
     }).catch((error) => { $('summary').hidden = false; $('summary').textContent = `${fileParam}: ${error.message}`; });
   }
 }

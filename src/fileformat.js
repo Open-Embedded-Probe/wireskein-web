@@ -55,6 +55,7 @@ export const ENCODINGS = new Set(['bits', 'analog', 'analog-f32']);
  * @property {(LogicChannel | AnalogChannel)[]} channels
  * @property {{ name: string, encoding: string }[]} skipped   channels of encodings this version does not read
  * @property {Map<string, Uint8Array>} attachments           attach/<name>
+ * @property {Map<string, Uint8Array>} parts                 markers/ and decode/ entries (wireskein-format §5.2, §5.3)
  * @property {{ time: string, content: unknown, [key: string]: unknown }[]} notes
  */
 
@@ -104,13 +105,16 @@ export async function readWireskein(input) {
   /** @type {Map<string, Uint8Array>} */
   const attachments = new Map();
   const notes = [];
+  /** @type {Map<string, Uint8Array>} */
+  const parts = new Map();
   for (const [name, entry] of entries) {
     if (name.startsWith('attach/')) attachments.set(name.slice(7), await readEntry(bytes, entry));
+    if (name.startsWith('markers/') || name.startsWith('decode/')) parts.set(name, await readEntry(bytes, entry));
   }
   for (const name of [...entries.keys()].filter((x) => x.startsWith('notes/')).sort()) {
     notes.push(JSON.parse(await text(name)));
   }
-  return { tickHz: head.tick_hz, ticks: head.ticks, meta: head.meta ?? {}, channels, skipped, attachments, notes };
+  return { tickHz: head.tick_hz, ticks: head.ticks, meta: head.meta ?? {}, channels, skipped, attachments, notes, parts };
 }
 
 /**

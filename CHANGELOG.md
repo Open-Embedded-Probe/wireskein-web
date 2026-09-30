@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- (EN) Markers and decoding annotations (wireskein-format §5.2, §5.3): `readMarkers(cap)`, `readAnnotations(cap or document)`, and `cap.parts` (the file's markers/ and decode/ entries). The viewer draws annotation rows under their data line (boxes with text where it fits, coloured by level; hover for the details), and markers across the rows (M puts one at the mouse; a panel goes to or removes them).
+- (JA) マーカーと復号の注釈（wireskein-format §5.2、§5.3）: `readMarkers(cap)`、`readAnnotations(cap または文書)`、`cap.parts`（ファイルの markers/ と decode/ の項目）。ビューアは、注釈の行をデータの線の下に描き（入る所は文字付きの箱、レベルで色分け、マウスで詳細）、マーカーを行をまたいで描く（M でマウスの位置に付け、一覧から移動・削除）。
+- (EN) Under `wireskein gui`: annotations decoded on request (with a button to store them in the file), the run's check results for a capture in a recorded run, markers saved into the file, and a form that appends a note.
+- (JA) `wireskein gui` 経由のとき: その場での復号（ファイルに入れるボタン付き）、記録した run の中のキャプチャの照合結果、マーカーのファイルへの保存、メモを追記する欄。
 ## 0.0.4
 
 - (EN) Time alignment from `wireskein align` (attach/alignment.json, `wireskein-alignment/0`): `readAlignment(cap)` and `alignedTick(ch, tickHz, k, a)`. The viewer draws analog channels on the aligned time, with a checkbox (and `&aligned=0`) for the probe's times; the summary shows the reference, the start shift, the scale and the residual. An alignment of an unknown format is not used.
