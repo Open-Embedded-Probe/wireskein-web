@@ -15,8 +15,8 @@ Status: **beta**.
 
 ## Viewer
 
-Open the [viewer](https://open-embedded-probe.github.io/wireskein-web/) and drop a `.wireskein` file. The file stays in the
-browser. You get:
+Open the [viewer](https://open-embedded-probe.github.io/wireskein-web/) and drop a `.wireskein` file or a sigrok `.sr` (told
+apart by content, not by name). The file stays in the browser. You get:
 
 - logic and analog lanes on a time axis; zoom with the wheel or + −, scroll in time with Shift + wheel, a trackpad
   swipe, drag or ← →, double-click or Home to fit, and an overview strip of the whole capture;
@@ -33,16 +33,19 @@ npm install wireskein-web
 ```
 
 ```js
-import { readWireskein, levelAt, edges, volts, analogTick } from 'wireskein-web';
+import { readCapture, levelAt, edges, volts, analogTick } from 'wireskein-web';
 
-const cap = await readWireskein(new Uint8Array(await file.arrayBuffer()));
+const cap = await readCapture(new Uint8Array(await file.arrayBuffer()));
 for (const ch of cap.channels) {
   if (ch.kind === 'logic') console.log(ch.name, ch.step, edges(ch).slice(0, 5));   // edge ticks
   else console.log(ch.name, ch.rateHz, volts(ch)?.slice(0, 5));                     // volts, if convertible
 }
 ```
 
-- `readWireskein(bytes)` returns the tick clock (`tickHz`, a `[numerator, denominator]` pair), the length in ticks, the
+- `readCapture(bytes)` reads a WireSkein file or a sigrok `.sr`, whatever its name (`sniff(bytes)` tells which;
+  `readWireskein` and `readSr` read one kind). A `.sr` written by wireskein gets its channels back at their own rates
+  (the real step, the raw analog values, the metadata); any other `.sr` has every channel at the file's rate.
+- It returns the tick clock (`tickHz`, a `[numerator, denominator]` pair), the length in ticks, the
   channels, `skipped` (channels of encodings this version does not read), `meta`, `attachments` and `notes`.
 - Logic channels hold one bit per sample (`levelAt(ch, k)`); sample k is at tick `phase + k * step`.
 - Analog channels hold raw values (`encoding: "analog"`, with `zero` / `scaleNv`) or volts (`"analog-f32"`); sample k
