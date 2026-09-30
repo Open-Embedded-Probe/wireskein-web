@@ -1,5 +1,5 @@
 // @ts-check
-import { analogTick, edges, levelAt, readWireskein, VERSION, volts } from './wireskein-web.js';
+import { analogTick, edges, levelAt, readCapture, VERSION, volts } from './wireskein-web.js';
 
 /** @typedef {import('../src/fileformat.js').Capture} Capture */
 /** @typedef {import('../src/fileformat.js').LogicChannel} LogicChannel */
@@ -65,7 +65,7 @@ function fmtTick(s, step) {
 
 async function open(/** @type {File | { name: string, arrayBuffer: () => Promise<ArrayBuffer> }} */ file) {
   try {
-    const cap = await readWireskein(new Uint8Array(await file.arrayBuffer()));
+    const cap = await readCapture(new Uint8Array(await file.arrayBuffer()));
     state = {
       cap, t0: 0, t1: Math.max(1, cap.ticks), cursor: null, lane: null,
       edges: cap.channels.map((ch) => (ch.kind === 'logic' ? edges(ch) : [])),
