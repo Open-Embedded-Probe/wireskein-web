@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- (EN) **Breaking: reads the `.wireskein` format (`wireskein/0`, wireskein 0.0.8 or later)** instead of `.wsc` (`wireskein-capture/0`), whose extension is Windows Script Component's. `readWsc` is now `readWireskein`. Files are told apart by their content (`wireskein.json`), not their name; other files, newer versions and files without a capture are refused with a clear message.
+- (JA) **互換のない変更: `.wsc`（`wireskein-capture/0`）に代えて、`.wireskein`（`wireskein/0`、wireskein 0.0.8 以降）を読む**（`.wsc` は Windows Script Component の拡張子）。`readWsc` は `readWireskein` にした。ファイルは名前ではなく中身（`wireskein.json`）で見分ける。ほかのファイル、新しい版、キャプチャのないファイルは、分かるメッセージで断る。
 - (EN) Viewer: a time axis with 1-2-5 labels and grid lines across the lanes; an overview strip of the whole capture (click or drag to move there); taller lanes. Hover a logic lane to measure: the width of the pulse under the mouse and of the next one, the period, the frequency and the duty (± one sample on a decimated channel), with the pulse highlighted; hover an analog lane for the sample's value. Scroll in time with Shift + wheel, a trackpad swipe, drag or ← →; + − zoom, Home fits. `&cursor=TICK,CHANNEL` puts the cursor there (screenshots).
 - (JA) ビューア: 1-2-5 の目盛りの時間軸と、行をまたぐ格子線。キャプチャ全体の帯（押すかドラッグでその位置へ移動）。行を高くした。ロジックの行にマウスを重ねると、その位置のパルスと次のパルスの幅、周期、周波数、デューティを示す（間引いたチャンネルは ± 1 サンプル）。そのパルスは色を付けて示す。アナログの行では、サンプルの値を示す。時間方向の移動は、Shift + ホイール、トラックパッドの横スワイプ、ドラッグ、← →。拡大・縮小は + −、Home で全体に戻る。`&cursor=TICK,CHANNEL` でカーソルを置ける（スクリーンショット用）。
 

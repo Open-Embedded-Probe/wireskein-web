@@ -9,7 +9,7 @@ workstation.
 
 1. Confirm that `main` is current and contains no unintended changes.
 2. Review the [README](../README.md) and the changelog.
-3. Run `npm run serve`, open the viewer in a Chromium browser and Firefox, and drop `test/fixtures/mixed.wsc`. Check the
+3. Run `npm run serve`, open the viewer in a Chromium browser and Firefox, and drop `test/fixtures/mixed.wireskein`. Check the
    logic and analog lanes, zoom and pan, sample dots, the band on the decimated channel `SLOW`, and the metadata,
    acquisition, attachment and note rows.
 4. After pushing `main`, open <https://open-embedded-probe.github.io/wireskein-web/> directly and repeat step 3.
