@@ -47,7 +47,7 @@ test('channels of unknown encodings are skipped, not misread', async () => {
   const head = { tick_hz: [1000, 1], ticks: 8,
                  channels: [{ name: 'A', file: 'ch/0.bits', encoding: 'bits', n: 8, step: 1, phase: 0 },
                             { name: 'E', file: 'ch/1.x', encoding: 'edges', n: 1 }], meta: {} };
-  const bytes = zipSync({ 'wireskein.json': '{"format": "wireskein/0"}', 'capture.json': JSON.stringify(head), 'ch/0.bits': new Uint8Array([0b10100101]), 'ch/1.x': new Uint8Array(4) });
+  const bytes = zipSync({ 'wireskein.json': '{"format": "wireskein/1"}', 'capture.json': JSON.stringify(head), 'ch/0.bits': new Uint8Array([0b10100101]), 'ch/1.x': new Uint8Array(4) });
   const cap = await readWireskein(bytes);
   assert.deepEqual(cap.channels.map((c) => c.name), ['A']);
   assert.deepEqual(cap.skipped, [{ name: 'E', encoding: 'edges' }]);
@@ -56,8 +56,9 @@ test('channels of unknown encodings are skipped, not misread', async () => {
 test('another format is refused', async () => {
   const { zipSync } = await import('./zipwriter.js');
   await assert.rejects(readWireskein(zipSync({ 'wireskein.json': '{"format": "wireskein/9"}' })), /wireskein\/9/);
+  await assert.rejects(readWireskein(zipSync({ 'wireskein.json': '{"format": "wireskein/0"}' })), /a beta WireSkein file/);
   await assert.rejects(readWireskein(zipSync({ 'capture.json': '{"format": "wireskein-capture/0"}' })), /not a WireSkein file/);
-  await assert.rejects(readWireskein(zipSync({ 'wireskein.json': '{"format": "wireskein/0"}' })), /no capture/);
+  await assert.rejects(readWireskein(zipSync({ 'wireskein.json': '{"format": "wireskein/1"}' })), /no capture/);
 });
 
 test('VERSION matches package.json', () => {

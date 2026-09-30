@@ -57,6 +57,15 @@ for (const ch of cap.channels) {
 - ロジックのチャンネルは、1 サンプル 1 ビットです（`levelAt(ch, k)`）。サンプル k は、刻み `phase + k * step` にあります。
 - アナログのチャンネルは、生の値（`encoding: "analog"`。`zero` と `scaleNv` 付き）か、電圧（`"analog-f32"`）です。サンプル k は、刻み `analogTick(ch, cap.tickHz, k)` にあります。
 - 依存はありません。deflate は、ブラウザ標準の `DecompressionStream` で展開します（今のブラウザ、Node.js 22 以降）。
+- 公開の API は、パッケージの入口（`import ... from 'wireskein-web'`）が出すものだけです。`src/` の下のファイルは入口ではありません。
+- JavaScript の名前は camelCase、ファイルの中（と Python）のキーは snake_case です。
+
+  | JavaScript | ファイルの中 |
+  | --- | --- |
+  | `tickHz`、`rateHz`、`t0Ticks` | `tick_hz`、`rate_hz`、`t0_ticks` |
+  | `valueBits`、`scaleNv` | `value_bits`、`scale_nv` |
+  | `id` | `capture.json` の `id` |
+  | `offsetTicks`（合わせ込み） | `offset_ticks` |
 
 形式の仕様は、WireSkein の [docs/wireskein-format.ja.md](https://github.com/Open-Embedded-Probe/wireskein/blob/main/docs/wireskein-format.ja.md) にあります。
 

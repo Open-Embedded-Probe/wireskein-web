@@ -54,7 +54,7 @@ export function alignedTick(ch, tickHz, k, a) {
 
 /**
  * The alignment of `other` onto a reference file (wireskein-format §5.1.1): the entry in other's alignment.json
- * for `referenceName`, when its capture_sha256 matches the reference's capture.json. null otherwise, with why.
+ * for `referenceName`, when its capture_id is the reference's id. null otherwise, with why.
  * @param {Capture} other @param {Capture} reference @param {string} referenceName
  * @returns {Promise<{ entry: Record<string, any> | null, why: string }>}
  */
@@ -66,10 +66,9 @@ export async function fileAlignment(other, reference, referenceName) {
   if (!entry || typeof entry.offset_ticks !== 'number' || typeof entry.scale !== 'number') {
     return { entry: null, why: `no alignment onto ${referenceName} in the file (wireskein align --to)` };
   }
-  if (!reference.captureJson) return { entry: null, why: `${referenceName} has no capture.json to compare` };
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', /** @type {Uint8Array<ArrayBuffer>} */ (reference.captureJson)));
-  const hex = [...digest].map((b) => b.toString(16).padStart(2, '0')).join('');
-  if (hex !== entry.capture_sha256) return { entry: null, why: `the alignment is for another file named ${referenceName}` };
+  if (!reference.id || entry.capture_id !== reference.id) {
+    return { entry: null, why: `the alignment is for another capture named ${referenceName}` };
+  }
   return { entry, why: '' };
 }
 

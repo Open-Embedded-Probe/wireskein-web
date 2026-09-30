@@ -61,6 +61,16 @@ for (const ch of cap.channels) {
 - Analog channels hold raw values (`encoding: "analog"`, with `zero` / `scaleNv`) or volts (`"analog-f32"`); sample k
   is at tick `analogTick(ch, cap.tickHz, k)`.
 - No dependencies. Deflate is undone with the platform's `DecompressionStream` (current browsers, Node.js 22 or later).
+- The public API is what the package root exports (`import ... from 'wireskein-web'`); files under `src/` are not an
+  entry point.
+- JavaScript names are camelCase; the keys in the file (and in Python) are snake_case:
+
+  | JavaScript | In the file |
+  | --- | --- |
+  | `tickHz`, `rateHz`, `t0Ticks` | `tick_hz`, `rate_hz`, `t0_ticks` |
+  | `valueBits`, `scaleNv` | `value_bits`, `scale_nv` |
+  | `id` | `capture.json` `id` |
+  | `offsetTicks` (alignment) | `offset_ticks` |
 
 The file format is specified in WireSkein's [docs/wireskein-format.ja.md](https://github.com/Open-Embedded-Probe/wireskein/blob/main/docs/wireskein-format.ja.md).
 

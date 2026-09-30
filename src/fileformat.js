@@ -13,7 +13,7 @@
 
 import { listEntries, readEntry } from './zip.js';
 
-export const FORMAT = 'wireskein/0';
+export const FORMAT = 'wireskein/1';
 /** Encodings this version reads; channels of others are skipped (wireskein-format §3.2). */
 export const ENCODINGS = new Set(['bits', 'analog', 'analog-f32']);
 
@@ -56,7 +56,7 @@ export const ENCODINGS = new Set(['bits', 'analog', 'analog-f32']);
  * @property {{ name: string, encoding: string }[]} skipped   channels of encodings this version does not read
  * @property {Map<string, Uint8Array>} attachments           attach/<name>
  * @property {Map<string, Uint8Array>} parts                 markers/ and decode/ entries (wireskein-format §5.2, §5.3)
- * @property {Uint8Array} [captureJson]                       capture.json as stored (its SHA-256 identifies the file, §5.1.1)
+ * @property {string | null} id                              the capture's id (capture.json "id"; other files refer to it, §5.1.1)
  * @property {{ time: string, content: unknown, [key: string]: unknown }[]} notes
  */
 
@@ -76,12 +76,14 @@ export async function readWireskein(input) {
   };
   if (!entries.has('wireskein.json')) throw new Error('not a WireSkein file (no wireskein.json)');
   const format = JSON.parse(await text('wireskein.json')).format;
+  if (format === 'wireskein/0') {
+    throw new Error(`a beta WireSkein file (wireskein/0, from wireskein 0.0.8-0.0.12); this version reads ${FORMAT} only`);
+  }
   if (format !== FORMAT) {
     throw new Error(`format ${JSON.stringify(format)}, this version reads ${JSON.stringify(FORMAT)} (a newer wireskein-web may read it)`);
   }
   if (!entries.has('capture.json')) throw new Error('the file holds no capture');
-  const captureJson = await readEntry(bytes, /** @type {import('./zip.js').ZipEntry} */ (entries.get('capture.json')));
-  const head = JSON.parse(new TextDecoder().decode(captureJson));
+  const head = JSON.parse(await text('capture.json'));
   /** @type {(LogicChannel | AnalogChannel)[]} */
   const channels = [];
   const skipped = [];
@@ -116,8 +118,7 @@ export async function readWireskein(input) {
   for (const name of [...entries.keys()].filter((x) => x.startsWith('notes/')).sort()) {
     notes.push(JSON.parse(await text(name)));
   }
-  return { tickHz: head.tick_hz, ticks: head.ticks, meta: head.meta ?? {}, channels, skipped, attachments, notes, parts,
-           captureJson };
+  return { tickHz: head.tick_hz, ticks: head.ticks, meta: head.meta ?? {}, channels, skipped, attachments, notes, parts, id: typeof head.id === 'string' ? head.id : null };
 }
 
 /**
