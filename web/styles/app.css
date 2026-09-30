@@ -31,7 +31,7 @@ td, th { text-align: left; padding: 2px 12px 2px 0; vertical-align: top; }
 .summary .aligned { display: block; margin-top: 4px; color: var(--muted); cursor: pointer; }
 .lane.annotation .name { font-weight: 400; font-size: 12px; color: var(--muted); }
 .lane.annotation.unsure canvas { opacity: 0.55; } .lane.annotation.unsure .name small { color: #b35900; }
-.checks td.ok { color: #1a7f37; font-weight: 600; } .checks td.ng { color: #cf222e; font-weight: 600; } .checks td.unchecked { color: var(--muted); }
+.checks td.ok { color: #1a7f37; font-weight: 600; } .checks td.ng { color: #cf222e; font-weight: 600; } .checks td.unchecked { color: #b35900; font-weight: 600; } .checks td.measured { color: var(--muted); }
 .markers .marker-row { display: flex; gap: 8px; align-items: center; margin: 2px 0; }
 .markers button, .note-form button, .summary button { font: inherit; padding: 1px 8px; border-radius: 4px; border: 1px solid var(--grid); background: var(--bg); color: var(--fg); cursor: pointer; }
 .note-form { display: flex; gap: 8px; margin-top: 8px; } .note-form input { flex: 1; font: inherit; padding: 2px 6px; }
