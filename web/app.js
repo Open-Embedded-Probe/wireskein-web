@@ -1,5 +1,5 @@
 // @ts-check
-import { alignedTick, edges, levelAt, readAlignment, readAnnotations, readCapture, readMarkers, VERSION, volts } from './wireskein-web.js';
+import { alignedTick, edges, fileAlignment, levelAt, onto, readAlignment, readAnnotations, readCapture, readMarkers, VERSION, volts } from './wireskein-web.js';
 
 /** @typedef {import('../src/fileformat.js').Capture} Capture */
 /** @typedef {import('../src/fileformat.js').LogicChannel} LogicChannel */
@@ -34,6 +34,8 @@ const LABEL_PX = 110;      // about this many pixels between time labels
  * @property {boolean} dirty                      markers changed since loaded / saved
  * @property {string | null} server               the file's path on `wireskein gui` (null: no server)
  * @property {string} name                        the file's name
+ * @property {Capture} base                       the file itself (cap adds the channels of added files)
+ * @property {{ name: string, prefix: string, entry: Record<string, any> | null, why: string }[]} others   added files
  */
 
 /** @type {View | null} */
@@ -103,7 +105,7 @@ async function open(file, rel = null) {
     state = {
       cap, t0: 0, t1: Math.max(1, cap.ticks), cursor: null, lane: null, trigger: null,
       alignment: readAlignment(cap), aligned: true, rows: [], row: null,
-      markers: readMarkers(cap) ?? [], dirty: false, server: null, name: file.name,
+      markers: readMarkers(cap) ?? [], dirty: false, server: null, name: file.name, base: cap, others: [],
       edges: cap.channels.map((ch) => (ch.kind === 'logic' ? edges(ch) : [])),
       volts: cap.channels.map((ch) => (ch.kind === 'analog' ? volts(ch) : null)),
     };
@@ -125,6 +127,14 @@ async function open(file, rel = null) {
     showMarkers();
     draw();
     if (state.server) loadFromServer(state);
+    const withFile = params.get('with');                              // &with=/files/B.wireskein: another probe's capture
+    if (withFile) {
+      const u = new URL(withFile, location.href);
+      if (u.origin === location.origin) {
+        const r = await fetch(u);
+        if (r.ok) await addFile(state, { name: u.pathname.split('/').pop() ?? 'other', arrayBuffer: () => r.arrayBuffer() });
+      }
+    }
   } catch (error) {
     $('summary').hidden = false;
     $('summary').textContent = `${file.name}: ${error instanceof Error ? error.message : error}`;
@@ -141,6 +151,32 @@ function showSummary(/** @type {string} */ name, /** @type {Capture} */ cap) {
     + (state?.trigger != null ? ` · trigger at ${fmtTime(state.trigger / tick, 4)}` : '');
   /** @type {HTMLElement} */ (h.querySelector('b')).textContent = name;
   el.append(h);
+  const v0 = state;
+  if (v0) {
+    for (const o of v0.others) {
+      const d = document.createElement('div');
+      d.className = o.entry ? 'other' : 'other unaligned';
+      const tick = hz(v0.base.tickHz);
+      d.textContent = o.entry
+        ? `+ ${o.name} as ${o.prefix}… on this time: aligned via ${o.entry.via} → ${o.entry.reference} (tick 0 at `
+          + `${fmtTime(o.entry.offset_ticks / tick, 4)}, clock ${(o.entry.scale_ppm ?? 0) >= 0 ? '+' : ''}`
+          + `${Number(o.entry.scale_ppm ?? 0).toFixed(2)} ppm, residual ${fmtTime((o.entry.residual_ticks ?? 0) / tick)})`
+        : `+ ${o.name} as ${o.prefix}… NOT aligned: its start is drawn at this file's start. ${o.why}`;
+      el.append(d);
+    }
+    const add = document.createElement('label');
+    add.className = 'add-file';
+    add.innerHTML = '<span>Add another probe\'s file…</span>';
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.hidden = true;
+    input.addEventListener('change', () => {
+      const f = input.files?.[0];
+      if (f) addFile(v0, f).catch((error) => { add.textContent = `${f.name}: ${error instanceof Error ? error.message : error}`; });
+    });
+    add.append(input);
+    el.append(add);
+  }
   const alignment = state?.alignment;
   if (state && alignment) {                   // attach/alignment.json from `wireskein align`
     const v = state;
@@ -227,7 +263,7 @@ function buildLanes(/** @type {Capture} */ cap) {
   attachOverview(overview.canvas);
   for (const [i, ch] of cap.channels.entries()) {
     const sub = ch.kind === 'logic'
-      ? `${fmtHz(tick / ch.step)}${ch.step > 1 ? ` (1/${ch.step})` : ''}`
+      ? `${fmtHz(tick / ch.step)}${ch.step > 1 && Number.isInteger(ch.step) ? ` (1/${ch.step})` : ''}`
       : `${fmtHz(hz(ch.rateHz))} ${ch.encoding === 'analog' && !state?.volts[i] ? 'raw' : ch.unit}`;
     const { lane, canvas } = row(ch.name, sub, ch.kind === 'logic' ? LOGIC_H : ANALOG_H, 'channel');
     canvas.dataset.index = String(i);
@@ -245,6 +281,29 @@ function annotationLane(lanes, r, k) {
   canvas.dataset.row = String(k);
   lanes.append(lane);
   attachInput(canvas, null, k);
+}
+
+// ---- another probe's capture, on this one's time (wireskein-format §5.1.1) ----
+
+/**
+ * Add another file's channels, on this file's ticks when it holds an alignment onto this file (wireskein align --to).
+ * @param {View} v @param {{ name: string, arrayBuffer: () => Promise<ArrayBuffer> }} file
+ */
+async function addFile(v, file) {
+  const other = await readCapture(new Uint8Array(await file.arrayBuffer()));
+  const { entry, why } = await fileAlignment(other, v.base, v.name);
+  const stem = file.name.replace(/\.[^.]*$/, '');
+  const prefix = `${stem}:`;
+  const channels = onto(v.base, other, entry, prefix);
+  v.others.push({ name: file.name, prefix, entry, why });
+  const ends = channels.map((c) => (c.kind === 'logic' ? c.phase + c.n * c.step
+    : c.t0Ticks[0] / c.t0Ticks[1] + (c.n * v.base.tickHz[0] * c.rateHz[1]) / (v.base.tickHz[1] * c.rateHz[0])));
+  v.cap = { ...v.cap, channels: [...v.cap.channels, ...channels], ticks: Math.max(v.cap.ticks, ...ends) };
+  v.edges = v.cap.channels.map((ch) => (ch.kind === 'logic' ? edges(ch) : []));
+  v.volts = v.cap.channels.map((ch) => (ch.kind === 'analog' ? volts(ch) : null));
+  showSummary(v.name, v.cap);
+  buildLanes(v.cap);
+  draw();
 }
 
 // ---- wireskein gui: annotations, checks, notes, markers ----

@@ -79,3 +79,22 @@ test('an alignment from wireskein align is read, an unknown one is not', async (
   cap.attachments.set('alignment.json', enc({ format: 'wireskein-alignment/9', channels: {} }));
   assert.equal(readAlignment(cap), null);
 });
+
+test('a capture from another probe goes onto the reference ticks', async () => {
+  const { fileAlignment, onto, edges: edgesOf } = await import('../src/index.js');
+  const A = await readWireskein(readFileSync(new URL('./fixtures/probeA.wireskein', import.meta.url)));
+  const B = await readWireskein(readFileSync(new URL('./fixtures/probeB.wireskein', import.meta.url)));
+  const { entry, why } = await fileAlignment(B, A, 'probeA.wireskein');
+  assert.ok(entry, why);
+  const [sync, v] = /** @type {any[]} */ (onto(A, B, entry, 'B:'));
+  assert.equal(sync.name, 'B:SYNC');
+  const a = edgesOf(/** @type {any} */ (A.channels[0]));
+  const b = edgesOf(sync);
+  // each of B's edges lands within a sample or two of A's (A: 0.5 us ticks, B: 1 us samples)
+  for (const e of b.slice(0, 20)) {
+    const near = a.reduce((m, x) => Math.min(m, Math.abs(x - e)), Infinity);
+    assert.ok(near <= 3, `B edge at ${e} is ${near} ticks from A's`);
+  }
+  assert.ok(Math.abs(v.t0Ticks[0] / v.t0Ticks[1] - (entry.offset_ticks + entry.scale * 5000)) < 1e-3);
+  assert.equal((await fileAlignment(B, B, 'probeA.wireskein')).entry, null);     // another file under that name
+});

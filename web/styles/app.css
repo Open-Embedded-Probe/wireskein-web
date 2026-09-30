@@ -34,5 +34,7 @@ td, th { text-align: left; padding: 2px 12px 2px 0; vertical-align: top; }
 .markers .marker-row { display: flex; gap: 8px; align-items: center; margin: 2px 0; }
 .markers button, .note-form button, .summary button { font: inherit; padding: 1px 8px; border-radius: 4px; border: 1px solid var(--grid); background: var(--bg); color: var(--fg); cursor: pointer; }
 .note-form { display: flex; gap: 8px; margin-top: 8px; } .note-form input { flex: 1; font: inherit; padding: 2px 6px; }
+.summary .other { color: var(--muted); } .summary .other.unaligned { color: #cf222e; }
+.summary .add-file { display: inline-block; margin-top: 4px; color: var(--line); cursor: pointer; text-decoration: underline; }
 .tip { position: absolute; z-index: 10; pointer-events: none; background: var(--card); border: 1px solid var(--grid); border-radius: 6px;
   padding: 6px 10px; font-size: 12px; line-height: 1.5; box-shadow: 0 2px 8px #0003; white-space: nowrap; font-variant-numeric: tabular-nums; }

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- (EN) Another probe's capture on the same time axis: `fileAlignment(other, reference, name)` (checks the reference's capture.json SHA-256) and `onto(reference, other, entry, prefix)`; the viewer's "Add another probe's file" (and `&with=URL`) draws its channels under a `name:` prefix, aligned when the file holds an alignment from `wireskein align --to`, else from this file's start and marked NOT aligned.
+- (JA) 別のプローブのキャプチャを同じ時間軸に: `fileAlignment(other, reference, name)`（基準の capture.json の SHA-256 を確かめる）と `onto(reference, other, entry, prefix)`。ビューアの「Add another probe's file」（と `&with=URL`）は、そのチャンネルを `名前:` を付けて描く。`wireskein align --to` の合わせ込みがあればそれで合わせ、なければこのファイルの開始にそろえ、合わせていないと示す。
 - (EN) Markers and decoding annotations (wireskein-format §5.2, §5.3): `readMarkers(cap)`, `readAnnotations(cap or document)`, and `cap.parts` (the file's markers/ and decode/ entries). The viewer draws annotation rows under their data line (boxes with text where it fits, coloured by level; hover for the details), and markers across the rows (M puts one at the mouse; a panel goes to or removes them).
 - (JA) マーカーと復号の注釈（wireskein-format §5.2、§5.3）: `readMarkers(cap)`、`readAnnotations(cap または文書)`、`cap.parts`（ファイルの markers/ と decode/ の項目）。ビューアは、注釈の行をデータの線の下に描き（入る所は文字付きの箱、レベルで色分け、マウスで詳細）、マーカーを行をまたいで描く（M でマウスの位置に付け、一覧から移動・削除）。
 - (EN) Under `wireskein gui`: annotations decoded on request (with a button to store them in the file), the run's check results for a capture in a recorded run, markers saved into the file, and a form that appends a note.

@@ -28,6 +28,8 @@ apart by content, not by name). The file stays in the browser. You get:
   back to the probe's times);
 - decoding annotations (I2C transactions, UART characters, ...) in rows under their data line, from the file's
   `decode/annotations.json` (`wireskein annotate --save`) or, under `wireskein gui`, decoded on request;
+- another probe's capture on the same time axis ("Add another probe's file", or `&with=`): aligned when it holds an
+  alignment onto this file from `wireskein align --to`, else drawn from this file's start and marked so;
 - markers: M puts one at the mouse, the panel goes to or removes them; they are saved into the file under
   `wireskein gui`;
 - under `wireskein gui`, the run's check results for a capture of a recorded run (OK / NG and why), and a form that
