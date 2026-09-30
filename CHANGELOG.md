@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- (EN) An added file's decoding annotations (stored, or decoded under `wireskein gui`) and markers come along on the same time: rows under its channels with its prefix, markers dashed (shown, not saved into this file).
+- (JA) 足したファイルの復号の注釈（入っているもの、または `wireskein gui` でその場で復号したもの）とマーカーも、同じ時間に載せる。行はそのチャンネルの下に接頭辞付きで、マーカーは破線（表示だけで、このファイルには保存しない）。
 - (EN) `&with=` may be given more than once (several probes' files); file names from URLs are decoded.
 - (JA) `&with=` を複数回与えられる（複数のプローブのファイル）。URL から取ったファイル名は、デコードして使う。
 - (EN) Another probe's capture on the same time axis: `fileAlignment(other, reference, name)` (checks the reference's capture.json SHA-256) and `onto(reference, other, entry, prefix)`; the viewer's "Add another probe's file" (and `&with=URL`) draws its channels under a `name:` prefix, aligned when the file holds an alignment from `wireskein align --to`, else from this file's start and marked NOT aligned.
