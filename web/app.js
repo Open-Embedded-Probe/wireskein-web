@@ -127,13 +127,11 @@ async function open(file, rel = null) {
     showMarkers();
     draw();
     if (state.server) loadFromServer(state);
-    const withFile = params.get('with');                              // &with=/files/B.wireskein: another probe's capture
-    if (withFile) {
+    for (const withFile of params.getAll('with')) {                  // &with=/files/B.wireskein: another probe's capture
       const u = new URL(withFile, location.href);
-      if (u.origin === location.origin) {
-        const r = await fetch(u);
-        if (r.ok) await addFile(state, { name: u.pathname.split('/').pop() ?? 'other', arrayBuffer: () => r.arrayBuffer() });
-      }
+      if (u.origin !== location.origin) continue;
+      const r = await fetch(u);
+      if (r.ok) await addFile(state, { name: decodeURIComponent(u.pathname.split('/').pop() ?? 'other'), arrayBuffer: () => r.arrayBuffer() });
     }
   } catch (error) {
     $('summary').hidden = false;
@@ -1041,7 +1039,7 @@ if (fileParam) {
     fetch(url).then((r) => {
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
       const rel = url.pathname.startsWith('/files/') ? decodeURIComponent(url.pathname.slice(7)) : null;
-      return open({ name: url.pathname.split('/').pop() ?? 'capture.wireskein', arrayBuffer: () => r.arrayBuffer() }, rel);
+      return open({ name: decodeURIComponent(url.pathname.split('/').pop() ?? 'capture.wireskein'), arrayBuffer: () => r.arrayBuffer() }, rel);
     }).catch((error) => { $('summary').hidden = false; $('summary').textContent = `${fileParam}: ${error.message}`; });
   }
 }
