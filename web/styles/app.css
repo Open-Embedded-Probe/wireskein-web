@@ -26,5 +26,6 @@ main { padding: 16px 20px; }
 .lane canvas { width: 100%; display: block; cursor: grab; touch-action: none; }
 table { border-collapse: collapse; }
 td, th { text-align: left; padding: 2px 12px 2px 0; vertical-align: top; }
+.summary .aligned { display: block; margin-top: 4px; color: var(--muted); cursor: pointer; }
 .tip { position: absolute; z-index: 10; pointer-events: none; background: var(--card); border: 1px solid var(--grid); border-radius: 6px;
   padding: 6px 10px; font-size: 12px; line-height: 1.5; box-shadow: 0 2px 8px #0003; white-space: nowrap; font-variant-numeric: tabular-nums; }

@@ -64,3 +64,18 @@ test('VERSION matches package.json', () => {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   assert.equal(VERSION, pkg.version);
 });
+
+test('an alignment from wireskein align is read, an unknown one is not', async () => {
+  const { readAlignment, alignedTick } = await import('../src/index.js');
+  const cap = await readWireskein(readFileSync(fixture));
+  assert.equal(readAlignment(cap), null);
+  const enc = (/** @type {unknown} */ o) => new TextEncoder().encode(JSON.stringify(o));
+  cap.attachments.set('alignment.json', enc({ format: 'wireskein-alignment/0', channels: {
+    VBUS: { offset_ticks: 100, scale: 1.001, reference: 'CLK', via: 'VBUS' } } }));
+  const a = readAlignment(cap);
+  assert.equal(a?.get('VBUS')?.scale, 1.001);
+  const vbus = /** @type {any} */ (cap.channels.find((c) => c.name === 'VBUS'));
+  assert.equal(alignedTick(vbus, cap.tickHz, 0, a?.get('VBUS')), 100 + 1.001 * 3.5);     // t0_ticks 7/2
+  cap.attachments.set('alignment.json', enc({ format: 'wireskein-alignment/9', channels: {} }));
+  assert.equal(readAlignment(cap), null);
+});

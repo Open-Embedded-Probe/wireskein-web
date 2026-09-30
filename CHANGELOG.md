@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- (EN) Time alignment from `wireskein align` (attach/alignment.json, `wireskein-alignment/0`): `readAlignment(cap)` and `alignedTick(ch, tickHz, k, a)`. The viewer draws analog channels on the aligned time, with a checkbox (and `&aligned=0`) for the probe's times; the summary shows the reference, the start shift, the scale and the residual. An alignment of an unknown format is not used.
+- (JA) `wireskein align` の時刻の合わせ込み（attach/alignment.json、`wireskein-alignment/0`）: `readAlignment(cap)` と `alignedTick(ch, tickHz, k, a)`。ビューアは、アナログのチャンネルを合わせた時刻で描く（チェックボックスと `&aligned=0` で、プローブの時刻に戻せる）。概要に、基準、開始のずれ、倍率、残りの誤差を出す。知らない形式の合わせ込みは使わない。
 ## 0.0.3
 
 - (EN) Viewer: the trigger is drawn as a dashed line marked T across the rows, and its time is in the summary. It comes from the logic segment's `trigger_index` (meta), an analog channel's `acquisition.trigger_index`, or `meta.probe.trigger_ns` against `meta.start_ns`.

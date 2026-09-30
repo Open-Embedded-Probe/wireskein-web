@@ -24,6 +24,8 @@ apart by content, not by name). The file stays in the browser. You get:
   hover an analog lane for the sample's value;
 - dots on the samples the probe really took; a channel recorded at a lower rate (a probe that decimates some channels)
   shows only its own samples, and a shaded band before each of its edges shows where the change happened;
+- analog channels on the aligned time when the file has an alignment from `wireskein align` (a checkbox switches
+  back to the probe's times);
 - the capture's metadata, each channel's acquisition settings (pin, input range, reference, ...), attachments and notes.
 
 ## Library
