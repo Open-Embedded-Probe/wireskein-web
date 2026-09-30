@@ -54,10 +54,18 @@ npm version 0.0.1 --allow-same-version
 
 ## Publish and push
 
-Confirm npm authentication, package name and publishing account before running:
+Log in to npm and confirm the account (once per workstation; the login is kept in `~/.npmrc`):
 
 ```sh
-npm publish --access public
+npm login                      # opens the browser (or asks for user, password and one-time code)
+npm whoami                     # the account that will publish
+npm owner ls wireskein-web     # after the first release: the accounts allowed to publish
+```
+
+Then publish and push:
+
+```sh
+npm publish --access public    # asks for a one-time code when two-factor authentication is on
 git push --follow-tags
 ```
 
