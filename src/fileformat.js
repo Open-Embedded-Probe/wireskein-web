@@ -56,6 +56,7 @@ export const ENCODINGS = new Set(['bits', 'analog', 'analog-f32']);
  * @property {{ name: string, encoding: string }[]} skipped   channels of encodings this version does not read
  * @property {Map<string, Uint8Array>} attachments           attach/<name>
  * @property {Map<string, Uint8Array>} parts                 markers/ and decode/ entries (wireskein-format §5.2, §5.3)
+ * @property {Uint8Array} [captureJson]                       capture.json as stored (its SHA-256 identifies the file, §5.1.1)
  * @property {{ time: string, content: unknown, [key: string]: unknown }[]} notes
  */
 
@@ -79,7 +80,8 @@ export async function readWireskein(input) {
     throw new Error(`format ${JSON.stringify(format)}, this version reads ${JSON.stringify(FORMAT)} (a newer wireskein-web may read it)`);
   }
   if (!entries.has('capture.json')) throw new Error('the file holds no capture');
-  const head = JSON.parse(await text('capture.json'));
+  const captureJson = await readEntry(bytes, /** @type {import('./zip.js').ZipEntry} */ (entries.get('capture.json')));
+  const head = JSON.parse(new TextDecoder().decode(captureJson));
   /** @type {(LogicChannel | AnalogChannel)[]} */
   const channels = [];
   const skipped = [];
@@ -114,7 +116,8 @@ export async function readWireskein(input) {
   for (const name of [...entries.keys()].filter((x) => x.startsWith('notes/')).sort()) {
     notes.push(JSON.parse(await text(name)));
   }
-  return { tickHz: head.tick_hz, ticks: head.ticks, meta: head.meta ?? {}, channels, skipped, attachments, notes, parts };
+  return { tickHz: head.tick_hz, ticks: head.ticks, meta: head.meta ?? {}, channels, skipped, attachments, notes, parts,
+           captureJson };
 }
 
 /**
