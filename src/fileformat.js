@@ -1,7 +1,9 @@
 // @ts-check
 /**
- * Reading WireSkein capture files (.wsc, format wireskein-capture/0).
- * The format is specified in the wireskein repository, docs/wsc-format.ja.md.
+ * Reading WireSkein files (.wireskein, format wireskein/0): a capture and what
+ * goes with it. The format is specified in the wireskein repository,
+ * docs/wireskein-format.ja.md. Files are told apart by their content
+ * (wireskein.json), not their name.
  *
  * Time is counted in ticks of one clock per file (tickHz, a fraction). A logic
  * channel has a sample every `step` ticks from `phase`; an analog channel has
@@ -11,8 +13,8 @@
 
 import { listEntries, readEntry } from './zip.js';
 
-export const FORMAT = 'wireskein-capture/0';
-/** Encodings this version reads; channels of others are skipped (wsc-format §3.2). */
+export const FORMAT = 'wireskein/0';
+/** Encodings this version reads; channels of others are skipped (wireskein-format §3.2). */
 export const ENCODINGS = new Set(['bits', 'analog', 'analog-f32']);
 
 /** @typedef {[number, number]} Ratio  numerator, denominator */
@@ -57,11 +59,12 @@ export const ENCODINGS = new Set(['bits', 'analog', 'analog-f32']);
  */
 
 /**
- * Read a .wsc file.
+ * Read a WireSkein file (any name). Throws on other files, on a format this
+ * version does not know (a newer one) and on a file holding no capture.
  * @param {Uint8Array | ArrayBuffer} input
  * @returns {Promise<Capture>}
  */
-export async function readWsc(input) {
+export async function readWireskein(input) {
   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
   const entries = listEntries(bytes);
   const text = async (/** @type {string} */ name) => {
@@ -69,8 +72,13 @@ export async function readWsc(input) {
     if (!entry) throw new Error(`${name} is missing`);
     return new TextDecoder().decode(await readEntry(bytes, entry));
   };
+  if (!entries.has('wireskein.json')) throw new Error('not a WireSkein file (no wireskein.json)');
+  const format = JSON.parse(await text('wireskein.json')).format;
+  if (format !== FORMAT) {
+    throw new Error(`format ${JSON.stringify(format)}, this version reads ${JSON.stringify(FORMAT)} (a newer wireskein-web may read it)`);
+  }
+  if (!entries.has('capture.json')) throw new Error('the file holds no capture');
   const head = JSON.parse(await text('capture.json'));
-  if (head.format !== FORMAT) throw new Error(`format ${JSON.stringify(head.format)}, expected ${JSON.stringify(FORMAT)}`);
   /** @type {(LogicChannel | AnalogChannel)[]} */
   const channels = [];
   const skipped = [];

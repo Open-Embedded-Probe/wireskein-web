@@ -8,7 +8,7 @@
 
 1. `main` が最新で、意図しない変更がないことを確かめます。
 2. [README](../README.ja.md) と変更履歴を読み直します。
-3. `npm run serve` でビューアを開き、Chromium 系のブラウザと Firefox で、`test/fixtures/mixed.wsc` を落とします。次のものを確かめます。
+3. `npm run serve` でビューアを開き、Chromium 系のブラウザと Firefox で、`test/fixtures/mixed.wireskein` を落とします。次のものを確かめます。
    - ロジックとアナログの行、拡大と移動、サンプルの点
    - 間引いたチャンネル `SLOW` の帯
    - メタ情報、取得の設定、添付、メモの行

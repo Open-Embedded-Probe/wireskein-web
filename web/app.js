@@ -1,9 +1,9 @@
 // @ts-check
-import { analogTick, edges, levelAt, readWsc, VERSION, volts } from './wireskein-web.js';
+import { analogTick, edges, levelAt, readWireskein, VERSION, volts } from './wireskein-web.js';
 
-/** @typedef {import('../src/wsc.js').Capture} Capture */
-/** @typedef {import('../src/wsc.js').LogicChannel} LogicChannel */
-/** @typedef {import('../src/wsc.js').AnalogChannel} AnalogChannel */
+/** @typedef {import('../src/fileformat.js').Capture} Capture */
+/** @typedef {import('../src/fileformat.js').LogicChannel} LogicChannel */
+/** @typedef {import('../src/fileformat.js').AnalogChannel} AnalogChannel */
 
 const $ = (/** @type {string} */ id) => /** @type {HTMLElement} */ (document.getElementById(id));
 const LOGIC_H = 56;
@@ -65,7 +65,7 @@ function fmtTick(s, step) {
 
 async function open(/** @type {File | { name: string, arrayBuffer: () => Promise<ArrayBuffer> }} */ file) {
   try {
-    const cap = await readWsc(new Uint8Array(await file.arrayBuffer()));
+    const cap = await readWireskein(new Uint8Array(await file.arrayBuffer()));
     state = {
       cap, t0: 0, t1: Math.max(1, cap.ticks), cursor: null, lane: null,
       edges: cap.channels.map((ch) => (ch.kind === 'logic' ? edges(ch) : [])),
@@ -561,7 +561,7 @@ if (fileParam) {
   if (url.origin === location.origin) {
     fetch(url).then((r) => {
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-      return open({ name: url.pathname.split('/').pop() ?? 'capture.wsc', arrayBuffer: () => r.arrayBuffer() });
+      return open({ name: url.pathname.split('/').pop() ?? 'capture.wireskein', arrayBuffer: () => r.arrayBuffer() });
     }).catch((error) => { $('summary').hidden = false; $('summary').textContent = `${fileParam}: ${error.message}`; });
   }
 }

@@ -7,15 +7,15 @@ English | [日本語](README.ja.md)
 [Changelog](CHANGELOG.md) ·
 [WireSkein](https://github.com/Open-Embedded-Probe/wireskein)
 
-The browser side of [WireSkein](https://github.com/Open-Embedded-Probe/wireskein): read logic-analyzer capture files
-(`.wsc`) and show them. The analysis (decoding, checks, capture from probes) runs in the `wireskein` Python package; its
+The browser side of [WireSkein](https://github.com/Open-Embedded-Probe/wireskein): read WireSkein files
+(`.wireskein`, logic-analyzer captures) and show them. The analysis (decoding, checks, capture from probes) runs in the `wireskein` Python package; its
 `wireskein gui` command serves a build of this library.
 
 Status: **beta**.
 
 ## Viewer
 
-Open the [viewer](https://open-embedded-probe.github.io/wireskein-web/) and drop a `.wsc` file. The file stays in the
+Open the [viewer](https://open-embedded-probe.github.io/wireskein-web/) and drop a `.wireskein` file. The file stays in the
 browser. You get:
 
 - logic and analog lanes on a time axis; zoom with the wheel or + −, scroll in time with Shift + wheel, a trackpad
@@ -33,23 +33,23 @@ npm install wireskein-web
 ```
 
 ```js
-import { readWsc, levelAt, edges, volts, analogTick } from 'wireskein-web';
+import { readWireskein, levelAt, edges, volts, analogTick } from 'wireskein-web';
 
-const cap = await readWsc(new Uint8Array(await file.arrayBuffer()));
+const cap = await readWireskein(new Uint8Array(await file.arrayBuffer()));
 for (const ch of cap.channels) {
   if (ch.kind === 'logic') console.log(ch.name, ch.step, edges(ch).slice(0, 5));   // edge ticks
   else console.log(ch.name, ch.rateHz, volts(ch)?.slice(0, 5));                     // volts, if convertible
 }
 ```
 
-- `readWsc(bytes)` returns the tick clock (`tickHz`, a `[numerator, denominator]` pair), the length in ticks, the
+- `readWireskein(bytes)` returns the tick clock (`tickHz`, a `[numerator, denominator]` pair), the length in ticks, the
   channels, `skipped` (channels of encodings this version does not read), `meta`, `attachments` and `notes`.
 - Logic channels hold one bit per sample (`levelAt(ch, k)`); sample k is at tick `phase + k * step`.
 - Analog channels hold raw values (`encoding: "analog"`, with `zero` / `scaleNv`) or volts (`"analog-f32"`); sample k
   is at tick `analogTick(ch, cap.tickHz, k)`.
 - No dependencies. Deflate is undone with the platform's `DecompressionStream` (current browsers, Node.js 22 or later).
 
-The file format is specified in WireSkein's [docs/wsc-format.ja.md](https://github.com/Open-Embedded-Probe/wireskein/blob/main/docs/wsc-format.ja.md).
+The file format is specified in WireSkein's [docs/wireskein-format.ja.md](https://github.com/Open-Embedded-Probe/wireskein/blob/main/docs/wireskein-format.ja.md).
 
 ## Development
 

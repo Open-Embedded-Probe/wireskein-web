@@ -2,12 +2,12 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { analogTick, edges, levelAt, readWsc, VERSION, volts } from '../src/index.js';
+import { analogTick, edges, levelAt, readWireskein, VERSION, volts } from '../src/index.js';
 
-const fixture = new URL('./fixtures/mixed.wsc', import.meta.url);   // written by wireskein (Python)
+const fixture = new URL('./fixtures/mixed.wireskein', import.meta.url);   // written by wireskein (Python)
 
 test('reads logic channels with their own step', async () => {
-  const cap = await readWsc(readFileSync(fixture));
+  const cap = await readWireskein(readFileSync(fixture));
   assert.deepEqual(cap.tickHz, [20000000, 1]);
   assert.equal(cap.ticks, 2088);
   const [clk, slow] = cap.channels;
@@ -20,7 +20,7 @@ test('reads logic channels with their own step', async () => {
 });
 
 test('reads analog channels, raw and volts', async () => {
-  const cap = await readWsc(readFileSync(fixture));
+  const cap = await readWireskein(readFileSync(fixture));
   const vbus = cap.channels[2];
   const sine = cap.channels[3];
   assert.ok(vbus.kind === 'analog' && sine.kind === 'analog');
@@ -35,7 +35,7 @@ test('reads analog channels, raw and volts', async () => {
 });
 
 test('meta, attachments and notes', async () => {
-  const cap = await readWsc(readFileSync(fixture));
+  const cap = await readWireskein(readFileSync(fixture));
   assert.equal(cap.meta.start_ns, 123456789);
   assert.equal(new TextDecoder().decode(cap.attachments.get('setup.txt')), '10k pull-ups');
   assert.equal(cap.notes[0].content, 'fixture for wireskein-web');
@@ -44,18 +44,20 @@ test('meta, attachments and notes', async () => {
 
 test('channels of unknown encodings are skipped, not misread', async () => {
   const { zipSync } = await import('./zipwriter.js');
-  const head = { format: 'wireskein-capture/0', tick_hz: [1000, 1], ticks: 8,
+  const head = { tick_hz: [1000, 1], ticks: 8,
                  channels: [{ name: 'A', file: 'ch/0.bits', encoding: 'bits', n: 8, step: 1, phase: 0 },
                             { name: 'E', file: 'ch/1.x', encoding: 'edges', n: 1 }], meta: {} };
-  const bytes = zipSync({ 'capture.json': JSON.stringify(head), 'ch/0.bits': new Uint8Array([0b10100101]), 'ch/1.x': new Uint8Array(4) });
-  const cap = await readWsc(bytes);
+  const bytes = zipSync({ 'wireskein.json': '{"format": "wireskein/0"}', 'capture.json': JSON.stringify(head), 'ch/0.bits': new Uint8Array([0b10100101]), 'ch/1.x': new Uint8Array(4) });
+  const cap = await readWireskein(bytes);
   assert.deepEqual(cap.channels.map((c) => c.name), ['A']);
   assert.deepEqual(cap.skipped, [{ name: 'E', encoding: 'edges' }]);
 });
 
 test('another format is refused', async () => {
   const { zipSync } = await import('./zipwriter.js');
-  await assert.rejects(readWsc(zipSync({ 'capture.json': '{"format": "wireskein-capture/9"}' })), /format/);
+  await assert.rejects(readWireskein(zipSync({ 'wireskein.json': '{"format": "wireskein/9"}' })), /wireskein\/9/);
+  await assert.rejects(readWireskein(zipSync({ 'capture.json': '{"format": "wireskein-capture/0"}' })), /not a WireSkein file/);
+  await assert.rejects(readWireskein(zipSync({ 'wireskein.json': '{"format": "wireskein/0"}' })), /no capture/);
 });
 
 test('VERSION matches package.json', () => {

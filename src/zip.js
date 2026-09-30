@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * A minimal zip reader for .wsc files: stored and deflate entries, no ZIP64.
+ * A minimal zip reader for WireSkein files: stored and deflate entries, no ZIP64.
  * Deflate is undone with the platform's DecompressionStream ("deflate-raw"),
  * available in current browsers and Node.js 22, so nothing is bundled for it.
  */

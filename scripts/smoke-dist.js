@@ -5,6 +5,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const mod = await import(pathToFileURL(join(root, 'dist', 'wireskein-web.js')).href);
-const cap = await mod.readWsc(readFileSync(join(root, 'test', 'fixtures', 'mixed.wsc')));
-if (cap.channels.length !== 4 || cap.channels[0].name !== 'CLK') throw new Error('dist smoke: .wsc read failed');
+const cap = await mod.readWireskein(readFileSync(join(root, 'test', 'fixtures', 'mixed.wireskein')));
+if (cap.channels.length !== 4 || cap.channels[0].name !== 'CLK') throw new Error('dist smoke: .wireskein read failed');
 console.log(`dist smoke ok (v${mod.VERSION})`);
