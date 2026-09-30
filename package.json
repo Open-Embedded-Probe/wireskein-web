@@ -1,6 +1,6 @@
 {
   "name": "wireskein-web",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "The browser side of WireSkein: read WireSkein files (.wireskein) and sigrok .sr, and show them.",
   "type": "module",
   "license": "MIT",
