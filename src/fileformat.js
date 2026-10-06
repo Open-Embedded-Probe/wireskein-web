@@ -188,3 +188,17 @@ export function volts(ch) {
   const scale = ch.scaleNv * 1e-9;
   return ch.values.map((v) => (v - zero) * scale);
 }
+
+/**
+ * The end codes of a raw analog channel (OEP capture §1.2): the code 0 means the input was at or below the frontend's
+ * low end, the top code (2^valueBits − 1) at or above its high end, so neither is a voltage. null when the file
+ * cannot tell (volts only, no valueBits, or no conversion to volts).
+ * @param {AnalogChannel} ch
+ * @returns {{ low: number, high: number, lowV: number, highV: number } | null}
+ */
+export function clipEnds(ch) {
+  if (ch.encoding !== 'analog' || !ch.valueBits || ch.zero === null || ch.scaleNv === null) return null;
+  const high = 2 ** ch.valueBits - 1;
+  const v = (/** @type {number} */ code) => (code - /** @type {number} */ (ch.zero)) * /** @type {number} */ (ch.scaleNv) * 1e-9;
+  return { low: 0, high, lowV: v(0), highV: v(high) };
+}

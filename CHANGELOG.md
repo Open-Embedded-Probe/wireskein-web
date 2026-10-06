@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- (EN) Raw analog samples at the converter's end codes (0 and 2^valueBits − 1) are clipped, not voltages (OEP capture §1.2): `clipEnds(ch)` gives the end codes and voltages; the viewer marks clipped samples in red and the tooltip reads "≥ 2.450 V: clipped at the high end (raw 4095)".
+- (JA) 生の値のアナログで、変換器の端の値（0 と 2^valueBits − 1）は電圧ではなく「切れた」（OEP capture §1.2）: `clipEnds(ch)` が端の値とその電圧を返す。ビューアは切れたサンプルを赤で示し、マウスで「≥ 2.450 V: clipped at the high end (raw 4095)」と出す。
 ## 0.0.6
 
 - (EN) **Breaking (WireSkein's decisions toward a freeze; not frozen yet):** reads the `wireskein/1` format (wireskein 0.0.13 or later); beta `wireskein/0` files are refused with a clear message. `Capture.id` (the capture's id) replaces `captureJson`; `fileAlignment` matches another file by its id (`capture_id`), so a converted reference still matches. A .sr's sidecar is `wireskein/sr-extra.json` (`wireskein-sr-extra/1`). The package exports only its root (`./src/*` is gone); the README lists the JavaScript names against the file's keys.

@@ -1,5 +1,5 @@
 // @ts-check
-import { alignedTick, edges, fileAlignment, levelAt, onto, readAlignment, readAnnotations, readCapture, readMarkers, VERSION, volts } from './wireskein-web.js';
+import { alignedTick, clipEnds, edges, fileAlignment, levelAt, onto, readAlignment, readAnnotations, readCapture, readMarkers, VERSION, volts } from './wireskein-web.js';
 
 /** @typedef {import('../src/fileformat.js').Capture} Capture */
 /** @typedef {import('../src/fileformat.js').LogicChannel} LogicChannel */
@@ -576,8 +576,12 @@ function measure(v, index, tick) {
   const { start, per } = timing(v, ch);
   const k = Math.min(ch.n - 1, Math.max(0, Math.round((tick - start) / per)));
   const vv = v.volts[index];
-  const value = vv ? `${vv[k].toFixed(4)} ${ch.unit}` + (ch.encoding === 'analog' ? ` (raw ${ch.values[k]})` : '')
-    : `raw ${ch.values[k]}`;
+  const ends = clipEnds(ch);
+  const raw = ch.values[k];
+  let value = vv ? `${vv[k].toFixed(4)} ${ch.unit}` + (ch.encoding === 'analog' ? ` (raw ${raw})` : '')
+    : `raw ${raw}`;
+  if (vv && ends && raw <= ends.low) value = `≤ ${ends.lowV.toFixed(3)} ${ch.unit}: clipped at the low end (raw ${raw})`;
+  if (vv && ends && raw >= ends.high) value = `≥ ${ends.highV.toFixed(3)} ${ch.unit}: clipped at the high end (raw ${raw})`;
   const al = alignmentOf(v, ch.name);
   return [`${ch.name}: ${value}`, `sample ${k} at ${fmtTime((start + k * per) / t, 4)}${al ? ' (aligned)' : ''}`];
 }
@@ -882,6 +886,25 @@ function drawAnalog(g, v, index, ch, x, w, h, col) {
       if (!Number.isFinite(vals[k])) continue;
       g.beginPath();
       g.arc(x(start + k * per), y(vals[k]), 2.2, 0, 2 * Math.PI);
+      g.fill();
+    }
+  }
+  const ends = clipEnds(ch);
+  if (ends && v.volts[index]) {                              // samples at an end of the converter: not voltages
+    g.fillStyle = col.error;
+    let last = -1;
+    for (let k = k0; k <= k1; k++) {
+      const raw = ch.values[k];
+      if (raw > ends.low && raw < ends.high) continue;
+      const px = Math.round(x(start + k * per));
+      if (px === last) continue;
+      last = px;
+      const yy = y(vals[k]);
+      const up = raw >= ends.high;
+      g.beginPath();                                         // a small triangle pointing past the end
+      g.moveTo(px - 3.5, yy + (up ? 1 : -1));
+      g.lineTo(px + 3.5, yy + (up ? 1 : -1));
+      g.lineTo(px, yy + (up ? -5 : 5));
       g.fill();
     }
   }
