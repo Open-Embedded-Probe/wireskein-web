@@ -580,8 +580,8 @@ function measure(v, index, tick) {
   const raw = ch.values[k];
   let value = vv ? `${vv[k].toFixed(4)} ${ch.unit}` + (ch.encoding === 'analog' ? ` (raw ${raw})` : '')
     : `raw ${raw}`;
-  if (vv && ends && raw <= ends.low) value = `≤ ${ends.lowV.toFixed(3)} ${ch.unit}: clipped at the low end (raw ${raw})`;
-  if (vv && ends && raw >= ends.high) value = `≥ ${ends.highV.toFixed(3)} ${ch.unit}: clipped at the high end (raw ${raw})`;
+  if (vv && ends && raw === ends.low) value = `≤ ${ends.lowV.toFixed(3)} ${ch.unit}: clipped at the low end (raw ${raw})`;
+  if (vv && ends && raw === ends.high) value = `≥ ${ends.highV.toFixed(3)} ${ch.unit}: clipped at the high end (raw ${raw})`;
   const al = alignmentOf(v, ch.name);
   return [`${ch.name}: ${value}`, `sample ${k} at ${fmtTime((start + k * per) / t, 4)}${al ? ' (aligned)' : ''}`];
 }
@@ -895,12 +895,12 @@ function drawAnalog(g, v, index, ch, x, w, h, col) {
     let last = -1;
     for (let k = k0; k <= k1; k++) {
       const raw = ch.values[k];
-      if (raw > ends.low && raw < ends.high) continue;
+      if (raw !== ends.low && raw !== ends.high) continue;
       const px = Math.round(x(start + k * per));
       if (px === last) continue;
       last = px;
       const yy = y(vals[k]);
-      const up = raw >= ends.high;
+      const up = raw === ends.high;
       g.beginPath();                                         // a small triangle pointing past the end
       g.moveTo(px - 3.5, yy + (up ? 1 : -1));
       g.lineTo(px + 3.5, yy + (up ? 1 : -1));

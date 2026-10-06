@@ -194,11 +194,12 @@ export function volts(ch) {
  * low end, the top code (2^valueBits − 1) at or above its high end, so neither is a voltage. null when the file
  * cannot tell (volts only, no valueBits, or no conversion to volts).
  * @param {AnalogChannel} ch
- * @returns {{ low: number, high: number, lowV: number, highV: number } | null}
+ * @returns {{ low: number, high: number, lowV: number, highV: number } | null}   low / high: the end codes
  */
 export function clipEnds(ch) {
   if (ch.encoding !== 'analog' || !ch.valueBits || ch.zero === null || ch.scaleNv === null) return null;
-  const high = 2 ** ch.valueBits - 1;
+  const top = 2 ** ch.valueBits - 1;
   const v = (/** @type {number} */ code) => (code - /** @type {number} */ (ch.zero)) * /** @type {number} */ (ch.scaleNv) * 1e-9;
-  return { low: 0, high, lowV: v(0), highV: v(high) };
+  // low / high: the codes at the low and high ends of the range; an inverting frontend (scaleNv < 0) swaps them
+  return ch.scaleNv < 0 ? { low: top, high: 0, lowV: v(top), highV: v(0) } : { low: 0, high: top, lowV: v(0), highV: v(top) };
 }
