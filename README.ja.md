@@ -55,6 +55,7 @@ for (const ch of cap.channels) {
   - `skipped`（この版が読めない形のチャンネル）
   - `meta`、`attachments`、`notes`
 - ロジックのチャンネルは、1 サンプル 1 ビットです（`levelAt(ch, k)`）。サンプル k は、刻み `phase + k * step` にあります。
+- 区間のチャンネル（`kind: "interval"`、`encoding: "interval-any"` / `"interval-latch"`。OEP の multirate）は、`phase` から `step` 刻みの区間ごとに 1 つの要約を `values` に持ちます（`active` のレベル付き）。any は区間のどこかで `active` なら `active`、latch はビット 0 が区間の終わりのレベル、ビット 1 が `active` への変化です。
 - アナログのチャンネルは、生の値（`encoding: "analog"`。`zero` と `scaleNv` 付き）か、電圧（`"analog-f32"`）です。サンプル k は、刻み `analogTick(ch, cap.tickHz, k)` にあります。
 - 依存はありません。deflate は、ブラウザ標準の `DecompressionStream` で展開します（今のブラウザ、Node.js 22 以降）。
 - 公開の API は、パッケージの入口（`import ... from 'wireskein-web'`）が出すものだけです。`src/` の下のファイルは入口ではありません。

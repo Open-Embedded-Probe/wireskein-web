@@ -4,6 +4,7 @@ import { alignedTick, clipEnds, edges, fileAlignment, levelAt, onto, readAlignme
 /** @typedef {import('../src/fileformat.js').Capture} Capture */
 /** @typedef {import('../src/fileformat.js').LogicChannel} LogicChannel */
 /** @typedef {import('../src/fileformat.js').AnalogChannel} AnalogChannel */
+/** @typedef {import('../src/fileformat.js').IntervalChannel} IntervalChannel */
 /** @typedef {import('../src/parts.js').Marker} Marker */
 /** @typedef {import('../src/parts.js').AnnotationRow} AnnotationRow */
 
@@ -80,14 +81,13 @@ function fmtTick(s, step) {
 // ---- loading ----
 
 /**
- * Where the trigger was, in ticks: the logic segment's trigger_index (meta), else an analog channel's
- * (acquisition.trigger_index), else the group's trigger_ns against start_ns. null: no trigger reported.
+ * Where the trigger was, in ticks: meta.trigger_tick, else an analog channel's (acquisition.trigger_index), else
+ * the group's trigger_ns against start_ns. null: no trigger reported.
  * @param {Capture} cap
  */
 function triggerTick(cap, /** @type {View | null} */ v = null) {
   const meta = /** @type {Record<string, any>} */ (cap.meta);
-  const logic = cap.channels.find((c) => c.kind === 'logic');
-  if (typeof meta.trigger_index === 'number' && logic?.kind === 'logic') return logic.phase + meta.trigger_index * logic.step;
+  if (typeof meta.trigger_tick === 'number') return meta.trigger_tick;
   for (const c of cap.channels) {
     const k = c.acquisition.trigger_index;
     if (c.kind === 'analog' && typeof k === 'number') return alignedTick(c, cap.tickHz, k, v ? alignmentOf(v, c.name) : null);
@@ -265,8 +265,10 @@ function buildLanes(/** @type {Capture} */ cap) {
   for (const [i, ch] of cap.channels.entries()) {
     const sub = ch.kind === 'logic'
       ? `${fmtHz(tick / ch.step)}${ch.step > 1 && Number.isInteger(ch.step) ? ` (1/${ch.step})` : ''}`
-      : `${fmtHz(hz(ch.rateHz))} ${ch.encoding === 'analog' && !state?.volts[i] ? 'raw' : ch.unit}`;
-    const { lane, canvas } = row(ch.name, sub, ch.kind === 'logic' ? LOGIC_H : ANALOG_H, 'channel');
+      : ch.kind === 'interval'
+        ? `${ch.encoding === 'interval-any' ? 'any' : 'latch'}-${ch.active ? 'high' : 'low'} per ${fmtTime(ch.step / tick)}`
+        : `${fmtHz(hz(ch.rateHz))} ${ch.encoding === 'analog' && !state?.volts[i] ? 'raw' : ch.unit}`;
+    const { lane, canvas } = row(ch.name, sub, ch.kind === 'analog' ? ANALOG_H : LOGIC_H, 'channel');
     canvas.dataset.index = String(i);
     lanes.append(lane);
     attachInput(canvas, i);
@@ -321,7 +323,7 @@ async function addFile(v, file, rel = null) {
   for (const m of readMarkers(other) ?? []) {
     v.otherMarkers.push({ ...m, label: prefix + m.label, t: at(m.t), end: m.end !== undefined ? at(m.end) : undefined });
   }
-  const ends = channels.map((c) => (c.kind === 'logic' ? c.phase + c.n * c.step
+  const ends = channels.map((c) => (c.kind !== 'analog' ? c.phase + c.n * c.step
     : c.t0Ticks[0] / c.t0Ticks[1] + (c.n * v.base.tickHz[0] * c.rateHz[1]) / (v.base.tickHz[1] * c.rateHz[0])));
   v.cap = { ...v.cap, channels: [...v.cap.channels, ...channels], ticks: Math.max(v.cap.ticks, ...ends) };
   v.edges = v.cap.channels.map((ch) => (ch.kind === 'logic' ? edges(ch) : []));
@@ -552,6 +554,7 @@ function measure(v, index, tick) {
   const cap = v.cap;
   const t = hz(cap.tickHz);
   const ch = cap.channels[index];
+  if (ch.kind === 'interval') return measureInterval(ch, tick, t);
   if (ch.kind === 'logic') {
     if (tick < ch.phase || tick >= ch.phase + ch.n * ch.step) return [`${ch.name}: no samples here`];
     const p = pulseAt(ch, v.edges[index], tick);
@@ -683,6 +686,7 @@ function draw() {
     const index = Number(canvas.dataset.index);
     const ch = v.cap.channels[index];
     if (ch.kind === 'logic') drawLogic(g, v, index, ch, x, w, h, col);
+    else if (ch.kind === 'interval') drawInterval(g, v, ch, x, w, h, col);
     else drawAnalog(g, v, index, ch, x, w, h, col);
     if (v.cursor !== null) {
       const px = Math.round(x(v.cursor)) + 0.5;
@@ -844,6 +848,64 @@ function drawLogic(g, v, index, ch, x, w, h, col) {
       g.beginPath();
       g.arc(x(ch.phase + k * ch.step), y(levelAt(ch, k)), 2.2, 0, 2 * Math.PI);
       g.fill();
+    }
+  }
+}
+
+/**
+ * What an interval channel says at a tick: only its summary, never a level it does not know.
+ * @param {IntervalChannel} ch @param {number} tick @param {number} t ticks per second
+ */
+function measureInterval(ch, tick, t) {
+  const k = Math.floor((tick - ch.phase) / ch.step);
+  if (k < 0 || k >= ch.n) return [`${ch.name}: no values here`];
+  const name = (/** @type {number} */ lv) => (lv ? 'high' : 'low');
+  const val = ch.values[k];
+  const span = `${fmtTime((ch.phase + k * ch.step) / t, 4)} + ${fmtTime(ch.step / t)}`;
+  if (ch.encoding === 'interval-any') {
+    return [val === ch.active ? `${ch.name}: ${name(ch.active)} at some time in this interval`
+      : `${ch.name}: ${name(1 - ch.active)} all through this interval`, `interval ${k}: ${span}`];
+  }
+  return [`${ch.name}: ${name(val & 1)} at the end of this interval`,
+          val & 2 ? `went ${name(ch.active)} inside it` : `did not go ${name(ch.active)} inside it`, `interval ${k}: ${span}`];
+}
+
+/**
+ * An interval channel: a band where the summary says the line was active somewhere (any) or changed (latch), a line
+ * where it fixes the level.
+ * @param {CanvasRenderingContext2D} g @param {View} v @param {IntervalChannel} ch
+ * @param {(t: number) => number} x @param {number} w @param {number} h @param {Colors} col
+ */
+function drawInterval(g, v, ch, x, w, h, col) {
+  const { t0, t1 } = v;
+  const y = (/** @type {number} */ lv) => (lv ? 10 : h - 10);
+  const k0 = Math.max(0, Math.floor((t0 - ch.phase) / ch.step));
+  const k1 = Math.min(ch.n - 1, Math.ceil((t1 - ch.phase) / ch.step));
+  const per = Math.max(1, Math.ceil(((t1 - t0) / w) / ch.step));    // values per pixel column, at least 1
+  const latch = ch.encoding === 'interval-latch';
+  g.lineWidth = 1.5;
+  for (let k = k0; k <= k1; k += per) {
+    let busy = false, lv = 0;
+    for (let j = k; j < Math.min(k + per, ch.n); j++) {
+      const val = ch.values[j];
+      const prev = j > 0 ? ch.values[j - 1] & 1 : val & 1;
+      if (latch ? (val & 2) !== 0 || (val & 1) !== prev : val === ch.active) busy = true;
+      lv = latch ? val & 1 : val;
+    }
+    const a = x(ch.phase + k * ch.step), b = x(ch.phase + Math.min(k + per, ch.n) * ch.step);
+    if (busy) {
+      g.fillStyle = col.band;
+      g.fillRect(a, y(1), Math.max(1, b - a), y(0) - y(1));
+      if (latch) {                                    // the end level is known: a tick at the interval's end
+        g.fillStyle = col.line;
+        g.fillRect(Math.max(a, b - 2), y(lv) - 0.75, 2, 1.5);
+      } else {
+        g.strokeStyle = col.line;
+        g.strokeRect(a + 0.5, y(1) + 0.5, Math.max(0, b - a - 1), y(0) - y(1) - 1);
+      }
+    } else {
+      g.fillStyle = col.line;
+      g.fillRect(a, y(lv) - 0.75, Math.max(1, b - a), 1.5);
     }
   }
 }

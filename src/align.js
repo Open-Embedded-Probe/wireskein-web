@@ -79,7 +79,7 @@ const ratio = (x) => [Math.round(x * 1e6), 1e6];
  * Other's channels on the reference's ticks, their names prefixed. With no entry, other's tick 0 is put at the
  * reference's tick 0 and only the rates are converted.
  * @param {Capture} reference @param {Capture} other @param {Record<string, any> | null} entry @param {string} prefix
- * @returns {(import('./fileformat.js').LogicChannel | AnalogChannel)[]}
+ * @returns {(import('./fileformat.js').LogicChannel | AnalogChannel | import('./fileformat.js').IntervalChannel)[]}
  */
 export function onto(reference, other, entry, prefix) {
   const hzOf = (/** @type {Ratio} */ r) => r[0] / r[1];
@@ -87,7 +87,7 @@ export function onto(reference, other, entry, prefix) {
   const b = entry ? entry.scale : hzOf(reference.tickHz) / hzOf(other.tickHz);
   const own = readAlignment(other);                         // other's analog onto its own logic, first
   return other.channels.map((ch) => {
-    if (ch.kind === 'logic') return { ...ch, name: prefix + ch.name, phase: a + b * ch.phase, step: b * ch.step };
+    if (ch.kind === 'logic' || ch.kind === 'interval') return { ...ch, name: prefix + ch.name, phase: a + b * ch.phase, step: b * ch.step };
     const al = own?.get(ch.name);
     const t0 = alignedTick(ch, other.tickHz, 0, al);
     const per = (hzOf(other.tickHz) / hzOf(ch.rateHz)) * (al ? al.scale : 1);

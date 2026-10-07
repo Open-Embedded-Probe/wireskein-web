@@ -15,7 +15,7 @@ import { listEntries, readEntry } from './zip.js';
 
 export const FORMAT = 'wireskein/1';
 /** Encodings this version reads; channels of others are skipped (wireskein-format §3.2). */
-export const ENCODINGS = new Set(['bits', 'analog', 'analog-f32']);
+export const ENCODINGS = new Set(['bits', 'analog', 'analog-f32', 'interval-any', 'interval-latch']);
 
 /** @typedef {[number, number]} Ratio  numerator, denominator */
 
@@ -48,11 +48,28 @@ export const ENCODINGS = new Set(['bits', 'analog', 'analog-f32']);
  */
 
 /**
+ * A logic line kept as one value per interval of `step` ticks (wireskein-format §4.4; OEP multirate's any_active and
+ * edge_latch): interval k is ticks [phase + k * step, phase + (k + 1) * step). "interval-any": the level `active` when
+ * the line was at it at any tick of the interval, else the other level. "interval-latch": bit 0 the level at the
+ * interval's last tick, bit 1 a change to `active` inside it (from the tick before).
+ * @typedef {object} IntervalChannel
+ * @property {'interval'} kind
+ * @property {string} name
+ * @property {'interval-any' | 'interval-latch'} encoding
+ * @property {number} n            values
+ * @property {number} step         ticks per value
+ * @property {number} phase        tick where interval 0 starts
+ * @property {0 | 1} active        the level watched (0: active-low)
+ * @property {Record<string, unknown>} acquisition
+ * @property {Uint8Array} values   one per interval: interval-any the level seen (active if any tick was), interval-latch 0-3
+ */
+
+/**
  * @typedef {object} Capture
  * @property {Ratio} tickHz
  * @property {number} ticks
  * @property {Record<string, unknown>} meta
- * @property {(LogicChannel | AnalogChannel)[]} channels
+ * @property {(LogicChannel | AnalogChannel | IntervalChannel)[]} channels
  * @property {{ name: string, encoding: string }[]} skipped   channels of encodings this version does not read
  * @property {Map<string, Uint8Array>} attachments           attach/<name>
  * @property {Map<string, Uint8Array>} parts                 markers/ and decode/ entries (wireskein-format §5.2, §5.3)
@@ -84,7 +101,7 @@ export async function readWireskein(input) {
   }
   if (!entries.has('capture.json')) throw new Error('the file holds no capture');
   const head = JSON.parse(await text('capture.json'));
-  /** @type {(LogicChannel | AnalogChannel)[]} */
+  /** @type {(LogicChannel | AnalogChannel | IntervalChannel)[]} */
   const channels = [];
   const skipped = [];
   for (const c of head.channels) {
@@ -99,6 +116,9 @@ export async function readWireskein(input) {
       if (data.length !== Math.ceil(c.n / 8)) throw new Error(`${c.name}: ${data.length} bytes for ${c.n} samples`);
       channels.push({ kind: 'logic', name: c.name, n: c.n, step: c.step, phase: c.phase,
                       acquisition: c.acquisition ?? {}, bits: data });
+    } else if (c.encoding === 'interval-any' || c.encoding === 'interval-latch') {
+      channels.push({ kind: 'interval', name: c.name, encoding: c.encoding, n: c.n, step: c.step, phase: c.phase,
+                      active: c.active ? 1 : 0, acquisition: c.acquisition ?? {}, values: intervalValues(c, data) });
     } else {
       channels.push({ kind: 'analog', name: c.name, encoding: c.encoding, n: c.n, rateHz: c.rate_hz,
                       t0Ticks: c.t0_ticks, width: c.width ?? 16, valueBits: c.value_bits ?? null,
@@ -119,6 +139,21 @@ export async function readWireskein(input) {
     notes.push(JSON.parse(await text(name)));
   }
   return { tickHz: head.tick_hz, ticks: head.ticks, meta: head.meta ?? {}, channels, skipped, attachments, notes, parts, id: typeof head.id === 'string' ? head.id : null };
+}
+
+/**
+ * @param {{ name: string, encoding: string, n: number, active: number }} c
+ * @param {Uint8Array} data
+ */
+function intervalValues(c, data) {
+  const bits = c.encoding === 'interval-latch' ? 2 : 1;
+  if (data.length !== Math.ceil((c.n * bits) / 8)) throw new Error(`${c.name}: ${data.length} bytes for ${c.n} values`);
+  const out = new Uint8Array(c.n);
+  for (let k = 0; k < c.n; k++) {
+    const b = k * bits;
+    out[k] = (data[b >> 3] >> (b & 7)) & (bits === 2 ? 3 : 1);
+  }
+  return out;
 }
 
 /**

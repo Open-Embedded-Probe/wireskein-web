@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- (EN) Interval channels (wireskein 0.0.17, OEP multirate's any_active / edge_latch): `interval-any` / `interval-latch` are read as `kind: "interval"` (`values`, `step`, `phase`, `active`). The viewer shows a band where the line was active somewhere (any) or changed (latch), a line where the level is known, and the tooltip says only what the summary says ("low at some time in this interval").
+- (JA) 区間のチャンネル（wireskein 0.0.17、OEP の multirate の any_active / edge_latch）: `interval-any` / `interval-latch` を `kind: "interval"`（`values`、`step`、`phase`、`active`）として読む。ビューアは、どこかで active だった区間（any）や変化した区間（latch）を帯で、レベルの分かる所を線で示し、マウスの説明は要約が言うことだけを出す（「low at some time in this interval」）。
+- (EN) The trigger line is drawn at `meta.trigger_tick` (ticks; wireskein 0.0.17 writes it instead of `trigger_index`).
+- (JA) トリガの線は `meta.trigger_tick`（刻み。wireskein 0.0.17 は `trigger_index` に代えてこれを書く）に引く。
+
 - (EN) Raw analog samples at the converter's end codes (0 and 2^valueBits − 1) are clipped, not voltages (OEP capture §1.2): `clipEnds(ch)` gives the end codes and voltages; the viewer marks clipped samples in red and the tooltip reads "≥ 2.450 V: clipped at the high end (raw 4095)".
 - (JA) 生の値のアナログで、変換器の端の値（0 と 2^valueBits − 1）は電圧ではなく「切れた」（OEP capture §1.2）: `clipEnds(ch)` が端の値とその電圧を返す。ビューアは切れたサンプルを赤で示し、マウスで「≥ 2.450 V: clipped at the high end (raw 4095)」と出す。
 ## 0.0.6

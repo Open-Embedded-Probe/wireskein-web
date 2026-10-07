@@ -99,3 +99,14 @@ test('a capture from another probe goes onto the reference ticks', async () => {
   assert.ok(Math.abs(v.t0Ticks[0] / v.t0Ticks[1] - (entry.offset_ticks + entry.scale * 5000)) < 1e-3);
   assert.equal((await fileAlignment(B, B, 'probeA.wireskein')).entry, null);     // another file under that name
 });
+
+test('interval channels (OEP multirate any_active / edge_latch) and the trigger in ticks', async () => {
+  const cap = await readWireskein(readFileSync(new URL('./fixtures/intervals.wireskein', import.meta.url)));   // wireskein (Python)
+  const [, cs, irq] = cap.channels;
+  assert.ok(cs.kind === 'interval' && irq.kind === 'interval');
+  assert.deepEqual([cs.encoding, cs.step, cs.phase, cs.active], ['interval-any', 8, 0, 0]);
+  assert.deepEqual([...cs.values], [0, 0, 0, 0, 1, 1, 1, 1]);        // active-low: low somewhere until tick 32
+  assert.deepEqual([irq.encoding, irq.active], ['interval-latch', 1]);
+  assert.deepEqual([...irq.values], [0, 2, 0, 0, 3, 1, 1, 1]);       // a pulse inside interval 1, a rise in interval 4
+  assert.equal(cap.meta.trigger_tick, 10);
+});

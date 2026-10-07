@@ -58,6 +58,9 @@ for (const ch of cap.channels) {
 - It returns the tick clock (`tickHz`, a `[numerator, denominator]` pair), the length in ticks, the
   channels, `skipped` (channels of encodings this version does not read), `meta`, `attachments` and `notes`.
 - Logic channels hold one bit per sample (`levelAt(ch, k)`); sample k is at tick `phase + k * step`.
+- Interval channels (`kind: "interval"`, `encoding: "interval-any"` / `"interval-latch"`, OEP multirate) hold one
+  summary per interval of `step` ticks from `phase` in `values`, with the `active` level: any, the level `active` when
+  the line was at it anywhere in the interval; latch, bit 0 the level at its end and bit 1 a change to `active`.
 - Analog channels hold raw values (`encoding: "analog"`, with `zero` / `scaleNv`) or volts (`"analog-f32"`); sample k
   is at tick `analogTick(ch, cap.tickHz, k)`.
 - No dependencies. Deflate is undone with the platform's `DecompressionStream` (current browsers, Node.js 22 or later).
