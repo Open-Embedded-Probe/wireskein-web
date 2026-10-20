@@ -20,9 +20,10 @@ apart by content, not by name). The file stays in the browser. You get:
 
 - a capture that lost data (`complete: false`) first says so in red: it failed, what was taken is kept, and what was
   lost (after which part, how long, why);
-- a capture in parts (wireskein-format §3.4) as tabs: a stream cut by its gaps (timeline, with the losses and gaps
-  between the tabs) or one acquisition per trigger (segments); [ and ] move between them, `&part=K` opens one; markers
-  and decoding annotations belong to their part;
+- a capture in parts (wireskein-format §3.4): a stream cut by its gaps (timeline) on one time axis, where data was
+  lost shaded red (also in the overview strip) and time not taken grey, the tabs going to a part (a checkbox shows one
+  part at a time instead, `&joined=0`); one acquisition per trigger (segments) as tabs; [ and ] move between parts,
+  `&part=K` opens one; markers and decoding annotations belong to their part (on one axis, a row's parts in one lane);
 - logic and analog lanes on a time axis; zoom with the wheel or + −, scroll in time with Shift + wheel, a trackpad
   swipe, drag or ← →, double-click or Home to fit, and an overview strip of the whole capture;
 - hover a logic lane to measure the pulse under the mouse and the next one: widths, period, frequency and duty;

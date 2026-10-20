@@ -41,6 +41,11 @@ const LABEL_PX = 110;      // about this many pixels between time labels
  * @property {string} name                        the file's name
  * @property {Capture} base                       the file itself, at the part shown (cap adds the channels of added files)
  * @property {Other[]} others                      added files
+ * @property {boolean} joined                      a timeline's parts on one time axis (else one part at a time)
+ * @property {number} [focus]                      joined: the part last gone to (the tabs, [ and ])
+ * @property {(Piece[] | null)[]} pieces           joined: per lane, its channel in each part (null: one channel)
+ * @property {{ a: number, b: number, lost: boolean, why: string }[]} spans   joined: the time between the parts
+ * @property {({ lo: number, hi: number } | null)[]} ranges   joined: an analog lane's value range over all its parts
  */
 
 /**
@@ -55,6 +60,17 @@ const LABEL_PX = 110;      // about this many pixels between time labels
  * @property {Channel[]} channels
  * @property {AnnotationRow[]} rows
  * @property {Marker[]} markers
+ */
+
+/**
+ * A lane's channel in one part of a joined timeline: on the file's ticks (shifted by the part's tick0).
+ * @typedef {object} Piece
+ * @property {Channel} ch
+ * @property {number[]} edges
+ * @property {Float64Array | null} volts
+ * @property {number} a      the part's first tick
+ * @property {number} b      past its last
+ * @property {number} part
  */
 
 /** @type {View | null} */
@@ -102,6 +118,10 @@ function fmtTick(s, step) {
  * @param {Capture} cap
  */
 function triggerTick(cap, /** @type {View | null} */ v = null) {
+  if (v?.joined) {                                     // the first part's trigger, on the file's ticks
+    for (const p of cap.parts) if (typeof p.meta.trigger_tick === 'number') return /** @type {number} */ (p.tick0) + p.meta.trigger_tick;
+    return null;
+  }
   const meta = /** @type {Record<string, any>} */ (cap.meta);
   if (typeof meta.trigger_tick === 'number') return meta.trigger_tick;
   for (const c of cap.channels) {
@@ -124,12 +144,21 @@ async function open(file, rel = null) {
       cap, t0: 0, t1: Math.max(1, cap.ticks), cursor: null, lane: null, trigger: null,
       alignment: readAlignment(cap), aligned: true, rows: [], ownRows: [], row: null,
       markers: readMarkers(cap) ?? [], dirty: false, server: null, name: file.name, base: cap, others: [], otherMarkers: [], otherRows: [],
-      edges: [], volts: [],
+      edges: [], volts: [], joined: false, pieces: [], spans: [], ranges: [],
     };
     const params = new URLSearchParams(location.search);
     const part = Number(params.get('part'));                           // &part=K: that part first
-    if (Number.isInteger(part) && part > 0 && part < cap.parts.length) state.base = selectPart(cap, part);
+    state.joined = cap.layout === 'timeline' && cap.parts.length > 1 && params.get('joined') !== '0'
+      && cap.parts.every((p) => p.tick0 !== null);
+    if (Number.isInteger(part) && part > 0 && part < cap.parts.length) {
+      if (state.joined) state.focus = part; else state.base = selectPart(cap, part);
+    }
     compose(state);
+    state.t1 = Math.max(1, state.cap.ticks);                          // the whole capture (all its parts when joined)
+    if (state.joined && state.focus) {                             // &part=K on one axis: the view on that part
+      const p = cap.parts[state.focus];
+      [state.t0, state.t1] = [/** @type {number} */ (p.tick0), /** @type {number} */ (p.tick0) + p.ticks];
+    }
     state.aligned = params.get('aligned') !== '0';                    // &aligned=0: the probe's times
     state.trigger = triggerTick(cap, state);
     const view = params.get('view')?.split(',').map(Number);          // &view=T0,T1 in ticks
@@ -163,7 +192,23 @@ async function open(file, rel = null) {
 
 /** The shift from the file's ticks (part 0's) to the part shown: its tick0, or null when not known. @param {View} v */
 function partShift(v) {
-  return v.base.part === 0 ? 0 : v.base.parts[v.base.part].tick0;
+  return v.joined || v.base.part === 0 ? 0 : v.base.parts[v.base.part].tick0;
+}
+
+/** A channel moved by d ticks. @param {Channel} ch @param {number} d @returns {Channel} */
+function shifted(ch, d) {
+  return ch.kind === 'analog' ? { ...ch, t0Ticks: [ch.t0Ticks[0] + d * ch.t0Ticks[1], ch.t0Ticks[1]] } : { ...ch, phase: ch.phase + d };
+}
+
+/** Where a part's ticks are on the view: the file's ticks when joined, else its own. @param {View} v @param {number} part */
+const partOffset = (v, part) => (v.joined ? /** @type {number} */ (v.base.parts[part].tick0) : 0);
+
+/** The part a tick of the joined view falls in (the last starting at or before it), or the part shown. @param {View} v @param {number} tick */
+function partAt(v, tick) {
+  if (!v.joined) return v.base.part;
+  let k = 0;
+  v.base.parts.forEach((p, i) => { if (/** @type {number} */ (p.tick0) <= tick) k = i; });
+  return k;
 }
 
 /**
@@ -176,26 +221,89 @@ function compose(v) {
   const shown = s === null ? [] : v.others;
   const by = s ?? 0;
   /** @type {(ch: Channel) => Channel} */
-  const shift = (ch) => (ch.kind === 'analog' ? { ...ch, t0Ticks: [ch.t0Ticks[0] - by * ch.t0Ticks[1], ch.t0Ticks[1]] }
-    : { ...ch, phase: ch.phase - by });
+  const shift = (/** @type {Channel} */ ch) => shifted(ch, -by);
   const extra = shown.flatMap((o) => o.channels.map(shift));
   const ends = extra.map((c) => (c.kind !== 'analog' ? c.phase + c.n * c.step
     : c.t0Ticks[0] / c.t0Ticks[1] + (c.n * v.base.tickHz[0] * c.rateHz[1]) / (v.base.tickHz[1] * c.rateHz[0])));
-  v.cap = { ...v.base, channels: [...v.base.channels, ...extra], ticks: Math.max(v.base.ticks, ...ends) };
-  v.edges = v.cap.channels.map((ch) => (ch.kind === 'logic' ? edges(ch) : ch.kind === 'events' ? eventEdges(ch) : []));
+  const edgesOf = (/** @type {Channel} */ ch) => (ch.kind === 'logic' ? edges(ch) : ch.kind === 'events' ? eventEdges(ch) : []);
+  v.pieces = [];
+  v.spans = [];
+  v.ranges = [];
+  let own = v.base.channels, length = v.base.ticks;
+  if (v.joined) {                                      // every part's channels on the file's ticks, lane by lane
+    const parts = v.base.parts;
+    const lanes = parts[0].channels.map((c0) => parts.map((p, k) => {
+      const ch = shifted(/** @type {Channel} */ (p.channels.find((c) => c.name === c0.name)), /** @type {number} */ (p.tick0));
+      return { ch, edges: edgesOf(ch), volts: ch.kind === 'analog' ? volts(ch) : null, a: /** @type {number} */ (p.tick0),
+               b: /** @type {number} */ (p.tick0) + p.ticks, part: k };
+    }));
+    own = lanes.map((ps) => ps[0].ch);
+    v.pieces = lanes;
+    v.ranges = lanes.map((ps) => {
+      if (ps[0].ch.kind !== 'analog') return null;
+      let lo = Infinity, hi = -Infinity;
+      for (const pc of ps) for (const x of pc.volts ?? /** @type {AnalogChannel} */ (pc.ch).values) if (Number.isFinite(x)) { lo = Math.min(lo, x); hi = Math.max(hi, x); }
+      return Number.isFinite(lo) ? { lo, hi } : null;
+    });
+    for (let k = 0; k + 1 < parts.length; k++) {
+      const a = /** @type {number} */ (parts[k].tick0) + parts[k].ticks, b = /** @type {number} */ (parts[k + 1].tick0);
+      const loss = v.base.lost.find((x) => x.afterPart === k);
+      if (b > a || loss) v.spans.push({ a, b: Math.max(a, b), lost: !!loss, why: loss ? loss.reason : 'not taken' });
+    }
+    const last = parts[parts.length - 1];
+    length = /** @type {number} */ (last.tick0) + last.ticks;
+  }
+  v.cap = { ...v.base, channels: [...own, ...extra], ticks: Math.max(length, ...ends) };
+  v.pieces = [...v.pieces, ...extra.map(() => null)];
+  v.ranges = [...v.ranges, ...extra.map(() => null)];
+  v.edges = v.cap.channels.map(edgesOf);
   v.volts = v.cap.channels.map((ch) => (ch.kind === 'analog' ? volts(ch) : null));
   const at = (/** @type {number} */ t) => t - by;
   v.otherRows = shown.flatMap((o) => o.rows.map((r) => ({ ...r, items: r.items.map((it) => ({ ...it, s: at(it.s), e: it.e !== undefined ? at(it.e) : undefined })) })));
   v.otherMarkers = shown.flatMap((o) => o.markers.map((m) => ({ ...m, t: at(m.t), end: m.end !== undefined ? at(m.end) : undefined })));
-  v.rows = [...v.ownRows.filter((r) => partOf(r) === v.base.part), ...v.otherRows];
+  v.rows = [...ownRowsShown(v), ...v.otherRows];
 }
 
-/** This file's markers on the part shown. @param {View} v */
-const partMarkers = (v) => v.markers.filter((m) => partOf(m) === v.base.part);
+/** This file's annotation rows on the view: the part shown's, or every part's on the file's ticks when joined. @param {View} v */
+function ownRowsShown(v) {
+  if (!v.joined) return v.ownRows.filter((r) => partOf(r) === v.base.part);
+  /** @type {Map<string, AnnotationRow>} */
+  const rows = new Map();                              // one lane per row name and channel, across the parts
+  for (const r of v.ownRows) {
+    const d = partOffset(v, Math.min(partOf(r), v.base.parts.length - 1));
+    const items = r.items.map((it) => ({ ...it, s: it.s + d, e: it.e !== undefined ? it.e + d : undefined }));
+    const key = `${r.name}\u0000${r.near ?? ''}`;
+    const had = rows.get(key);
+    if (!had) { rows.set(key, { ...r, part: undefined, items }); continue; }
+    had.items = [...had.items, ...items].sort((a, b) => a.s - b.s);
+    if (had.verdict !== r.verdict) {                   // the least sure of them
+      const sure = (/** @type {AnnotationRow} */ x) => (!x.verdict || x.verdict === 'confirmed' ? 1 : x.score ?? 0);
+      if (sure(r) < sure(had)) Object.assign(had, { verdict: r.verdict, score: r.score });
+    }
+  }
+  return [...rows.values()];
+}
+
+/** This file's markers on the view: the part shown's, or every part's on the file's ticks when joined. @param {View} v */
+const partMarkers = (v) => (v.joined
+  ? v.markers.map((m) => {
+    const d = partOffset(v, Math.min(partOf(m), v.base.parts.length - 1));
+    return d ? { ...m, t: m.t + d, end: m.end !== undefined ? m.end + d : undefined } : m;
+  })
+  : v.markers.filter((m) => partOf(m) === v.base.part));
 
 /** Show part k (wireskein-format §3.4): its own time from 0, its trigger, markers and annotations. @param {View} v @param {number} k */
 function showPart(v, k) {
-  if (k < 0 || k >= v.base.parts.length || k === v.base.part) return;
+  if (k < 0 || k >= v.base.parts.length) return;
+  if (v.joined) {                                      // one axis: go there
+    const p = v.base.parts[k];
+    v.focus = k;
+    [v.t0, v.t1] = [/** @type {number} */ (p.tick0), /** @type {number} */ (p.tick0) + p.ticks];
+    showSummary(v.name, v.cap);
+    draw();
+    return;
+  }
+  if (k === v.base.part) return;
   v.base = selectPart(v.base, k);
   compose(v);
   v.t0 = 0;
@@ -224,8 +332,8 @@ function partTabs(v, el) {
       : typeof sns === 'number' && typeof start0 === 'number' ? `+${fmtTime((sns - start0) / 1e9, 4)}` : '';
     b.textContent = `${v.base.layout === 'segments' ? '#' : ''}${k + 1}` + (when ? ` · ${when}` : '') + ` · ${fmtTime(p.ticks / t)}`
       + (typeof p.meta.trigger_tick === 'number' ? ' · T' : '');
-    b.className = k === v.base.part ? 'current' : '';
-    b.title = 'Show this part ([ and ] move between parts)';
+    b.className = k === (v.joined ? v.focus ?? -1 : v.base.part) ? 'current' : '';
+    b.title = v.joined ? 'Go to this part ([ and ] move between parts)' : 'Show this part ([ and ] move between parts)';
     b.addEventListener('click', () => showPart(v, k));
     bar.append(b);
     for (const x of v.base.lost.filter((l) => l.afterPart === k)) {
@@ -245,6 +353,28 @@ function partTabs(v, el) {
         bar.append(span);
       }
     }
+  }
+  if (v.base.layout === 'timeline' && parts.every((p) => p.tick0 !== null)) {
+    const label = document.createElement('label');
+    label.className = 'joined';
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = v.joined;
+    box.addEventListener('change', () => {
+      v.joined = box.checked;
+      if (!v.joined) v.base = selectPart(v.base, v.focus ?? partAt(v, (v.t0 + v.t1) / 2));
+      compose(v);
+      v.t0 = 0;
+      v.t1 = Math.max(1, v.cap.ticks);
+      v.trigger = triggerTick(v.cap, v);
+      showSummary(v.name, v.cap);
+      buildLanes(v.cap);
+      showMarkers();
+      draw();
+      if (v.server) loadFromServer(v);
+    });
+    label.append(box, ' on one time axis (the gaps between them shaded)');
+    bar.append(label);
   }
   el.append(bar);
 }
@@ -284,7 +414,8 @@ function showSummary(/** @type {string} */ name, /** @type {Capture} */ cap) {
   el.innerHTML = '';
   lossBanner(cap, el);
   const h = document.createElement('div');
-  const many = cap.parts.length > 1 ? ` · ${cap.layout === 'segments' ? 'acquisition' : 'part'} ${cap.part + 1} of ${cap.parts.length}` : '';
+  const many = cap.parts.length < 2 ? '' : state?.joined ? ` · ${cap.parts.length} parts on one time axis`
+    : ` · ${cap.layout === 'segments' ? 'acquisition' : 'part'} ${cap.part + 1} of ${cap.parts.length}`;
   h.innerHTML = `<b></b>${many} · ${cap.channels.length} channels · ${fmtTime(cap.ticks / tick)} · tick ${fmtHz(tick)}`
     + (state?.trigger != null ? ` · trigger at ${fmtTime(state.trigger / tick, 4)}` : '');
   /** @type {HTMLElement} */ (h.querySelector('b')).textContent = name;
@@ -487,7 +618,7 @@ async function hasServer() {
 const api = (path, rel, part = null) => `${path}?file=${encodeURIComponent(rel)}${part !== null ? `&part=${part}` : ''}`;
 
 /** The part to name to the server: the one shown, when the file has several. @param {View} v */
-const serverPart = (v) => (v.base.parts.length > 1 ? v.base.part : null);
+const serverPart = (v) => (v.base.parts.length > 1 && !v.joined ? v.base.part : null);
 
 /** @param {string} method @param {string} url @param {unknown} body */
 async function send(method, url, body) {
@@ -499,7 +630,7 @@ async function send(method, url, body) {
 /** This file's annotation rows, every part's (the added files' stay). @param {View} v @param {AnnotationRow[]} rows */
 function setRows(v, rows) {
   v.ownRows = rows.map((r) => ({ ...r, items: [...r.items].sort((a, b) => a.s - b.s) }));
-  v.rows = [...v.ownRows.filter((r) => partOf(r) === v.base.part), ...v.otherRows];
+  v.rows = [...ownRowsShown(v), ...v.otherRows];
 }
 
 /** Annotations (stored or decoded now), the run's checks for this capture, and the note form. @param {View} v */
@@ -513,7 +644,12 @@ async function loadFromServer(v) {
     if (r.ok) {
       const doc = await r.json();
       const rows = readAnnotations(doc);
-      if (rows && state === v && v.base.part === part) {     // decoded now: this part's (stored: every part's, each named)
+      if (rows && state === v && v.joined) {                 // every part's, each naming its part
+        setRows(v, rows);
+        buildLanes(v.cap);
+        draw();
+        showDecodeState(v, doc.stored === true);
+      } else if (rows && state === v && v.base.part === part) {   // decoded now: this part's (stored: every part's)
         setRows(v, [...v.ownRows.filter((x) => partOf(x) !== part),
                     ...rows.map((x) => ({ ...x, part: x.part ?? (doc.stored === true ? undefined : part) }))
                       .filter((x) => partOf(x) === part)]);
@@ -641,7 +777,8 @@ function showMarkers() {
     go.addEventListener('click', () => {
       showPart(v, partOf(m));
       const span = v.t1 - v.t0;
-      const mid = m.end !== undefined ? (m.t + m.end) / 2 : m.t;
+      const d = v.joined ? partOffset(v, partOf(m)) : 0;
+      const mid = d + (m.end !== undefined ? (m.t + m.end) / 2 : m.t);
       v.t0 = mid - span / 2;
       v.t1 = mid + span / 2;
       draw();
@@ -667,8 +804,9 @@ function showMarkers() {
 function addMarker(v, tick) {
   const label = prompt('Marker name', `M${v.markers.length + 1}`);
   if (label === null || !label.trim()) return;
-  v.markers.push({ t: Math.round(tick), label: label.trim(), by: 'viewer', time: new Date().toISOString(),
-                   ...(v.base.parts.length > 1 ? { part: v.base.part } : {}) });
+  const part = partAt(v, tick);                        // its part's ticks (wireskein-format §5.2)
+  v.markers.push({ t: Math.round(tick - partOffset(v, part)), label: label.trim(), by: 'viewer', time: new Date().toISOString(),
+                   ...(v.base.parts.length > 1 ? { part } : {}) });
   v.dirty = true;
   showMarkers();
   draw();
@@ -701,6 +839,33 @@ function pulseAt(ch, e, tick) {
 
 /** The tooltip's lines. @param {View} v @param {number} index @param {number} tick */
 function measure(v, index, tick) {
+  const pieces = v.pieces[index];
+  if (pieces) {                                        // joined: the part under the mouse, or the time between
+    const pc = pieces.find((x) => x.a <= tick && tick < x.b);
+    if (pc) return withPiece(v, index, pc, () => [...measureOne(v, index, tick), `part ${pc.part + 1}`]);
+    const sp = v.spans.find((x) => x.a <= tick && tick < x.b);
+    const t = hz(v.cap.tickHz);
+    return [`${v.cap.channels[index].name}: ${sp?.lost ? 'LOST here' : 'not taken here'}`,
+            ...(sp ? [`${fmtTime((sp.b - sp.a) / t)}${sp.lost ? ` · ${sp.why}` : ''}`] : [])];
+  }
+  return measureOne(v, index, tick);
+}
+
+/**
+ * fn with lane `index` showing one part's channel (its edges and volts): the drawing and measuring of one channel
+ * work on a joined lane part by part.
+ * @template T @param {View} v @param {number} index @param {Piece} pc @param {() => T} fn @returns {T}
+ */
+function withPiece(v, index, pc, fn) {
+  const ch = v.cap.channels[index], e = v.edges[index], vv = v.volts[index];
+  v.cap.channels[index] = pc.ch;
+  v.edges[index] = pc.edges;
+  v.volts[index] = pc.volts;
+  try { return fn(); } finally { v.cap.channels[index] = ch; v.edges[index] = e; v.volts[index] = vv; }
+}
+
+/** The tooltip's lines for one channel. @param {View} v @param {number} index @param {number} tick */
+function measureOne(v, index, tick) {
   const cap = v.cap;
   const t = hz(cap.tickHz);
   const ch = cap.channels[index];
@@ -762,7 +927,7 @@ function colors() {
   return { line: c('--line'), band: c('--band'), grid: c('--grid'), muted: c('--muted'), cursor: c('--cursor'),
            pulse: c('--pulse'), window: c('--window'), track: c('--track'), trigger: c('--trigger'),
            marker: c('--marker'), span: c('--span'), ok: c('--anno'), warn: c('--anno-warn'), error: c('--anno-error'),
-           annoText: c('--anno-text'), busy: c('--busy') };
+           annoText: c('--anno-text'), busy: c('--busy'), lost: c('--lost') };
 }
 /** @typedef {ReturnType<typeof colors>} Colors */
 
@@ -834,10 +999,28 @@ function draw() {
       continue;
     }
     const index = Number(canvas.dataset.index);
-    const ch = v.cap.channels[index];
-    if (ch.kind === 'logic') drawLogic(g, v, index, ch, x, w, h, col);
-    else if (ch.kind === 'events') drawEvents(g, v, index, ch, x, w, h, col);
-    else drawAnalog(g, v, index, ch, x, w, h, col);
+    const one = (/** @type {Channel} */ ch) => {
+      if (ch.kind === 'logic') drawLogic(g, v, index, ch, x, w, h, col);
+      else if (ch.kind === 'events') drawEvents(g, v, index, ch, x, w, h, col);
+      else drawAnalog(g, v, index, ch, x, w, h, col);
+    };
+    const pieces = v.pieces[index];
+    if (pieces) {                                      // joined: the time between the parts, then each part clipped to itself
+      for (const sp of v.spans) {
+        if (sp.b < v.t0 || sp.a > v.t1) continue;
+        g.fillStyle = sp.lost ? col.lost : col.track;
+        g.fillRect(x(sp.a), 0, Math.max(1, x(sp.b) - x(sp.a)), h);
+      }
+      for (const pc of pieces) {
+        if (pc.b < v.t0 || pc.a > v.t1) continue;
+        g.save();
+        g.beginPath(); g.rect(x(pc.a), 0, x(pc.b) - x(pc.a), h); g.clip();
+        withPiece(v, index, pc, () => one(pc.ch));
+        g.restore();
+      }
+    } else {
+      one(v.cap.channels[index]);
+    }
     if (v.cursor !== null) {
       const px = Math.round(x(v.cursor)) + 0.5;
       g.strokeStyle = col.cursor;
@@ -865,8 +1048,9 @@ function drawMarkerLines(g, v, x, h, col, ruler) {
   g.strokeStyle = col.marker;
   g.fillStyle = col.marker;
   g.lineWidth = 1.5;
-  for (const m of [...partMarkers(v), ...v.otherMarkers]) {
-    g.setLineDash(v.markers.includes(m) ? [] : [2, 3]);             // an added file's: dashed
+  const mine = partMarkers(v);
+  for (const m of [...mine, ...v.otherMarkers]) {
+    g.setLineDash(mine.includes(m) ? [] : [2, 3]);                  // an added file's: dashed
     for (const tick of m.end !== undefined ? [m.t, m.end] : [m.t]) {
       const px = Math.round(x(tick)) + 0.5;
       g.beginPath(); g.moveTo(px, ruler ? 20 : 0); g.lineTo(px, h); g.stroke();
@@ -1119,7 +1303,9 @@ function drawAnalog(g, v, index, ch, x, w, h, col) {
   const vals = v.volts[index] ?? ch.values;
   if (!vals.length) return;
   let lo = Infinity, hi = -Infinity;
-  for (const s of vals) { if (Number.isFinite(s)) { lo = Math.min(lo, s); hi = Math.max(hi, s); } }
+  const range = v.ranges[index];                      // joined: one scale over every part
+  if (range) ({ lo, hi } = range);
+  else for (const s of vals) { if (Number.isFinite(s)) { lo = Math.min(lo, s); hi = Math.max(hi, s); } }
   if (hi === lo) { hi += 1; lo -= 1; }
   const pad = 12;
   const y = (/** @type {number} */ s) => h - pad - ((s - lo) / (hi - lo)) * (h - 2 * pad);
@@ -1187,6 +1373,11 @@ function drawOverview(g, v, w, h, col) {
   const total = Math.max(1, v.cap.ticks);
   g.fillStyle = col.track;
   g.fillRect(0, 3, w, h - 6);
+  for (const sp of v.spans) {                          // joined: where data was lost, in the whole capture
+    if (!sp.lost) continue;
+    g.fillStyle = col.error;
+    g.fillRect((sp.a / total) * w, 1, Math.max(2, ((sp.b - sp.a) / total) * w), h - 2);
+  }
   const a = Math.max(0, (v.t0 / total) * w), b = Math.min(w, (v.t1 / total) * w);
   g.fillStyle = col.window;
   g.fillRect(Math.min(a, w - 4), 1, Math.max(4, b - a), h - 2);
@@ -1322,8 +1513,8 @@ document.addEventListener('keydown', (event) => {
     '+': () => zoom(0.8, center), '=': () => zoom(0.8, center),
     '-': () => zoom(1.25, center), _: () => zoom(1.25, center),
     Home: fit, 0: fit,
-    '[': () => { if (state) showPart(state, state.base.part - 1); },
-    ']': () => { if (state) showPart(state, state.base.part + 1); },
+    '[': () => { if (state) showPart(state, (state.joined ? state.focus ?? partAt(state, (state.t0 + state.t1) / 2) : state.base.part) - 1); },
+    ']': () => { if (state) showPart(state, (state.joined ? state.focus ?? partAt(state, (state.t0 + state.t1) / 2) : state.base.part) + 1); },
     m: () => { if (state && state.cursor !== null) addMarker(state, state.cursor); },
     M: () => { if (state && state.cursor !== null) addMarker(state, state.cursor); },
   };
