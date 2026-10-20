@@ -193,7 +193,7 @@ export function selectPart(cap, k) {
 
 /**
  * One channel of capture.json and its data.
- * @param {Record<string, any>} c @param {Uint8Array} data
+ * @param {any} c @param {Uint8Array} data
  * @returns {Channel}
  */
 function channelOf(c, data) {
@@ -282,6 +282,7 @@ export function levelAt(ch, k) {
  * @returns {number[]}
  */
 export function edges(ch) {
+  /** @type {number[]} */
   const out = [];
   if (!ch.n) return out;
   let level = ch.bits[0] & 1;
