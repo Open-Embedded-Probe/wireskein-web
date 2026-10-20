@@ -18,12 +18,19 @@ Status: **beta**.
 Open the [viewer](https://open-embedded-probe.github.io/wireskein-web/) and drop a `.wireskein` file or a sigrok `.sr` (told
 apart by content, not by name). The file stays in the browser. You get:
 
+- a capture that lost data (`complete: false`) first says so in red: it failed, what was taken is kept, and what was
+  lost (after which part, how long, why);
+- a capture in parts (wireskein-format §3.4) as tabs: a stream cut by its gaps (timeline, with the losses and gaps
+  between the tabs) or one acquisition per trigger (segments); [ and ] move between them, `&part=K` opens one; markers
+  and decoding annotations belong to their part;
 - logic and analog lanes on a time axis; zoom with the wheel or + −, scroll in time with Shift + wheel, a trackpad
   swipe, drag or ← →, double-click or Home to fit, and an overview strip of the whole capture;
 - hover a logic lane to measure the pulse under the mouse and the next one: widths, period, frequency and duty;
   hover an analog lane for the sample's value;
 - dots on the samples the probe really took; a channel recorded at a lower rate (a probe that decimates some channels)
-  shows only its own samples, and a shaded band before each of its edges shows where the change happened;
+  shows only its own samples, and a shaded band before each of its edges shows where the change happened; a line kept
+  as its changes (events, OEP capture format 1) shows a band over each quantum it changed in, darker with the count
+  where it changed more than once, and the tooltip says only what is known (the changes, the levels around them);
 - analog channels on the aligned time when the file has an alignment from `wireskein align` (a checkbox switches
   back to the probe's times);
 - decoding annotations (I2C transactions, UART characters, ...) in rows under their data line, from the file's
@@ -55,12 +62,17 @@ for (const ch of cap.channels) {
 - `readCapture(bytes)` reads a WireSkein file or a sigrok `.sr`, whatever its name (`sniff(bytes)` tells which;
   `readWireskein` and `readSr` read one kind). A `.sr` written by wireskein gets its channels back at their own rates
   (the real step, the raw analog values, the metadata); any other `.sr` has every channel at the file's rate.
-- It returns the tick clock (`tickHz`, a `[numerator, denominator]` pair), the length in ticks, the
-  channels, `skipped` (channels of encodings this version does not read), `meta`, `attachments` and `notes`.
+- It returns the capture seen at its first part: the tick clock (`tickHz`, a `[numerator, denominator]` pair), the
+  part's length in ticks, channels and `meta` (the capture's with the part's on top), and for the whole file `parts`,
+  `layout` (`"timeline"` / `"segments"`), `complete`, `lost`, `skipped` (channels of encodings this version does not
+  read), `attachments` and `notes`. `selectPart(cap, k)` shows part k.
+- `complete: false` means data was lost while capturing (`lost`: after which part, how many ticks, why): the capture
+  failed and a reader says so.
 - Logic channels hold one bit per sample (`levelAt(ch, k)`); sample k is at tick `phase + k * step`.
-- Interval channels (`kind: "interval"`, `encoding: "interval-any"` / `"interval-latch"`, OEP multirate) hold one
-  summary per interval of `step` ticks from `phase` in `values`, with the `active` level: any, the level `active` when
-  the line was at it anywhere in the interval; latch, bit 0 the level at its end and bit 1 a change to `active`.
+- Events channels (`kind: "events"`, OEP capture format 1) hold a line's changes per quantum of `step` ticks from
+  `phase`: per event its quantum (`quanta`), the level at its end (`levels`) and how many times it changed in it
+  (`counts`, 127 = at least 127), with `startLevel` before quantum 0. `eventEdges(ch)` gives the ticks of the changes
+  that moved it (each quantum's last tick, as wireskein counts), `levelAfter(ch, q)` the level at quantum q's end.
 - Analog channels hold raw values (`encoding: "analog"`, with `zero` / `scaleNv`) or volts (`"analog-f32"`); sample k
   is at tick `analogTick(ch, cap.tickHz, k)`.
 - No dependencies. Deflate is undone with the platform's `DecompressionStream` (current browsers, Node.js 22 or later).
@@ -73,6 +85,8 @@ for (const ch of cap.channels) {
   | `tickHz`, `rateHz`, `t0Ticks` | `tick_hz`, `rate_hz`, `t0_ticks` |
   | `valueBits`, `scaleNv` | `value_bits`, `scale_nv` |
   | `id` | `capture.json` `id` |
+  | `startLevel` (events) | `start_level` |
+  | `afterPart` (lost) | `after_part` |
   | `offsetTicks` (alignment) | `offset_ticks` |
 
 The file format is specified in WireSkein's [docs/wireskein-format.ja.md](https://github.com/Open-Embedded-Probe/wireskein/blob/main/docs/wireskein-format.ja.md).

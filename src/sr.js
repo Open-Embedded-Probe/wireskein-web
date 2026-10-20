@@ -162,6 +162,8 @@ export async function readSr(input) {
   }
   for (const name of [...entries.keys()].filter((x) => x.startsWith('notes/')).sort()) notes.push(JSON.parse(await text(name)));
   const meta = { ...(extra.meta ?? {}), sr: { samplerate: dev.samplerate, unitsize } };
-  return { tickHz, ticks, meta, channels, skipped: [], attachments, notes, parts: new Map(),
+  // one part, nothing lost: a .sr holds one gapless run (the parts and losses of a WireSkein file do not go into one)
+  return { tickHz, ticks, meta, channels, part: 0, parts: [{ ticks, tick0: 0, meta: {}, channels }], layout: 'timeline',
+           complete: true, lost: [], fileMeta: meta, skipped: [], attachments, notes, entries: new Map(),
            id: typeof extra.id === 'string' ? extra.id : null };
 }

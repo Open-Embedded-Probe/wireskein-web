@@ -7,9 +7,9 @@
 
 export const VERSION = '0.0.6';
 
-export { ENCODINGS, FORMAT, analogTick, clipEnds, edges, levelAt, readWireskein, volts } from './fileformat.js';
+export { ENCODINGS, FORMAT, analogTick, clipEnds, edges, eventEdges, eventIndex, levelAfter, levelAt, readWireskein, selectPart, volts } from './fileformat.js';
 export { ALIGNMENT_FORMAT, alignedTick, fileAlignment, onto, readAlignment } from './align.js';
-export { ANNOTATIONS_FORMAT, MARKERS_FORMAT, readAnnotations, readMarkers } from './parts.js';
+export { ANNOTATIONS_FORMAT, MARKERS_FORMAT, partOf, readAnnotations, readMarkers } from './parts.js';
 export { readCapture, sniff } from './open.js';
 export { readSr } from './sr.js';
 export { listEntries, readEntry } from './zip.js';

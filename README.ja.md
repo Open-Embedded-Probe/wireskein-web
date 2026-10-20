@@ -20,9 +20,12 @@
   - Shift + ホイール、トラックパッドの横スワイプ、ドラッグ、← → で時間方向に移動します。
   - ダブルクリックか Home で全体に戻ります。時間軸の下の帯は、キャプチャ全体です。
 - ロジックの行にマウスを重ねると、その位置のパルスと次のパルスの幅、周期、周波数、デューティを示します。アナログの行では、サンプルの値を示します。
+- 取得の途中でデータが落ちたキャプチャ（`complete: false`）は、最初に赤で示します。失敗であること、取れた所は残してあること、何が落ちたか（どの区間の後、長さ、理由）。
+- 区間に分かれたキャプチャ（wireskein-format §3.4）を、タブで切り替えます。隙間で区切ったストリーム（timeline。タブの間に、落ちた長さと取っていない長さを示す）か、トリガごとの取得（segments）です。[ と ] で移り、`&part=K` でその区間を開きます。マーカーと復号の注釈は、それぞれの区間のものです。
 - プローブが実際に取ったサンプルの点。
   - 低いレートで記録したチャンネル（一部のチャンネルを間引くプローブ）は、自分のサンプルだけを見せます。
   - そのチャンネルのエッジの前には、変化が起きた可能性のある区間を、薄い帯で示します。
+  - 変化で持つ線（events、OEP の形式 1）は、変化のあった刻みを帯で示します。2 回以上変わった刻みは濃くし、回数を添えます。マウスの説明は、分かっていること（変化の回数と、その前後のレベル）だけを出します。
 - `wireskein align` の合わせ込みがファイルにあれば、アナログのチャンネルを合わせた時刻で表示します（チェックボックスで、プローブの時刻に戻せます）。
 - 復号の注釈（I2C の取引、UART の文字など）を、データの線の下の行に示します。ファイルの `decode/annotations.json`（`wireskein annotate --save`）から読むか、`wireskein gui` 経由なら、その場で復号します。
 - 別のプローブのキャプチャを、同じ時間軸に並べます（「Add another probe's file」か `&with=`）。`wireskein align --to` の合わせ込みが入っていればそれで合わせ、なければこのファイルの開始にそろえて、合わせていないと示します。
@@ -50,12 +53,12 @@ for (const ch of cap.channels) {
   - wireskein が書いた `.sr` は、チャンネルを自分のレートに戻します（本当の `step`、アナログの生の値、メタ情報）。
   - ほかの `.sr` は、全チャンネルがファイルのレートです。
 - 返すものは、次のとおりです。
-  - 刻みの周波数（`tickHz`、`[分子, 分母]`）と、刻みで数えた長さ
-  - チャンネルの一覧
-  - `skipped`（この版が読めない形のチャンネル）
-  - `meta`、`attachments`、`notes`
+  - 最初の区間から見たキャプチャ: 刻みの周波数（`tickHz`、`[分子, 分母]`）、区間の刻みで数えた長さ、チャンネルの一覧、`meta`（キャプチャのものに、区間のものを重ねたもの）
+  - ファイル全体の `parts`、`layout`（`"timeline"` か `"segments"`）、`complete`、`lost`、`skipped`（この版が読めない形のチャンネル）、`attachments`、`notes`
+  - `selectPart(cap, k)` で、区間 k から見たものになります。
+- `complete: false` は、取得の途中でデータが落ちたことを表します（`lost`: どの区間の後で、何刻み、なぜ）。そのキャプチャは失敗で、読み手はそう示します。
 - ロジックのチャンネルは、1 サンプル 1 ビットです（`levelAt(ch, k)`）。サンプル k は、刻み `phase + k * step` にあります。
-- 区間のチャンネル（`kind: "interval"`、`encoding: "interval-any"` / `"interval-latch"`。OEP の multirate）は、`phase` から `step` 刻みの区間ごとに 1 つの要約を `values` に持ちます（`active` のレベル付き）。any は区間のどこかで `active` なら `active`、latch はビット 0 が区間の終わりのレベル、ビット 1 が `active` への変化です。
+- events のチャンネル（`kind: "events"`。OEP の形式 1）は、`phase` から `step` 刻みの刻み（quantum）ごとに、線の変化を持ちます。出来事ごとに、刻みの番号（`quanta`）、刻みの終わりのレベル（`levels`）、その中で変わった回数（`counts`。127 は「少なくとも 127」）です。刻み 0 の前のレベルは `startLevel` です。`eventEdges(ch)` は、レベルが移った変化の刻み（wireskein と同じく、刻みの最後の刻み）を返し、`levelAfter(ch, q)` は刻み q の終わりのレベルを返します。
 - アナログのチャンネルは、生の値（`encoding: "analog"`。`zero` と `scaleNv` 付き）か、電圧（`"analog-f32"`）です。サンプル k は、刻み `analogTick(ch, cap.tickHz, k)` にあります。
 - 依存はありません。deflate は、ブラウザ標準の `DecompressionStream` で展開します（今のブラウザ、Node.js 22 以降）。
 - 公開の API は、パッケージの入口（`import ... from 'wireskein-web'`）が出すものだけです。`src/` の下のファイルは入口ではありません。
@@ -66,6 +69,8 @@ for (const ch of cap.channels) {
   | `tickHz`、`rateHz`、`t0Ticks` | `tick_hz`、`rate_hz`、`t0_ticks` |
   | `valueBits`、`scaleNv` | `value_bits`、`scale_nv` |
   | `id` | `capture.json` の `id` |
+  | `startLevel`（events） | `start_level` |
+  | `afterPart`（lost） | `after_part` |
   | `offsetTicks`（合わせ込み） | `offset_ticks` |
 
 形式の仕様は、WireSkein の [docs/wireskein-format.ja.md](https://github.com/Open-Embedded-Probe/wireskein/blob/main/docs/wireskein-format.ja.md) にあります。

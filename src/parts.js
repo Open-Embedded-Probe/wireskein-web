@@ -17,6 +17,7 @@ export const ANNOTATIONS_FORMAT = 'wireskein-annotations/0';
  * @property {string} [note]
  * @property {string} [by]
  * @property {string} [time]
+ * @property {number} [part]     the part its ticks are of (wireskein-format §5.2; none: part 0)
  */
 
 /**
@@ -34,6 +35,7 @@ export const ANNOTATIONS_FORMAT = 'wireskein-annotations/0';
  * @property {string} [near]     the channel it goes under
  * @property {string} [verdict]  how sure the analysis is ("confirmed", "likely", ...)
  * @property {number} [score]    0..1
+ * @property {number} [part]     the part its ticks are of (wireskein-format §5.3; none: part 0)
  * @property {AnnotationItem[]} items
  */
 
@@ -49,10 +51,11 @@ function json(data) {
  * @returns {Marker[] | null}
  */
 export function readMarkers(cap) {
-  const doc = json(cap.parts?.get('markers/markers.json'));
-  if (doc === null) return cap.parts?.has('markers/markers.json') ? null : [];
+  const doc = json(cap.entries?.get('markers/markers.json'));
+  if (doc === null) return cap.entries?.has('markers/markers.json') ? null : [];
   if (doc.format !== MARKERS_FORMAT || !Array.isArray(doc.markers)) return null;
-  return doc.markers.filter((/** @type {any} */ m) => typeof m?.t === 'number' && typeof m?.label === 'string');
+  return doc.markers.filter((/** @type {any} */ m) => typeof m?.t === 'number' && typeof m?.label === 'string'
+    && (m.part === undefined || Number.isInteger(m.part)));
 }
 
 /**
@@ -61,7 +64,16 @@ export function readMarkers(cap) {
  * @returns {AnnotationRow[] | null}
  */
 export function readAnnotations(source) {
-  const doc = 'parts' in source ? json(/** @type {Capture} */ (source).parts?.get('decode/annotations.json')) : source;
+  const doc = 'entries' in source ? json(/** @type {Capture} */ (source).entries?.get('decode/annotations.json')) : source;
   if (!doc || doc.format !== ANNOTATIONS_FORMAT || !Array.isArray(doc.rows)) return null;
-  return doc.rows.filter((/** @type {any} */ r) => typeof r?.name === 'string' && Array.isArray(r.items));
+  return doc.rows.filter((/** @type {any} */ r) => typeof r?.name === 'string' && Array.isArray(r.items)
+    && (r.part === undefined || Number.isInteger(r.part)));
+}
+
+/**
+ * The part a marker or an annotation row belongs to (none: part 0).
+ * @param {{ part?: number }} x
+ */
+export function partOf(x) {
+  return x.part ?? 0;
 }

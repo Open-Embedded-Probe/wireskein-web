@@ -2,10 +2,20 @@
 
 ## Unreleased
 
-- (EN) Interval channels (wireskein 0.0.17, OEP multirate's any_active / edge_latch): `interval-any` / `interval-latch` are read as `kind: "interval"` (`values`, `step`, `phase`, `active`). The viewer shows a band where the line was active somewhere (any) or changed (latch), a line where the level is known, and the tooltip says only what the summary says ("low at some time in this interval").
-- (JA) 区間のチャンネル（wireskein 0.0.17、OEP の multirate の any_active / edge_latch）: `interval-any` / `interval-latch` を `kind: "interval"`（`values`、`step`、`phase`、`active`）として読む。ビューアは、どこかで active だった区間（any）や変化した区間（latch）を帯で、レベルの分かる所を線で示し、マウスの説明は要約が言うことだけを出す（「low at some time in this interval」）。
-- (EN) The trigger line is drawn at `meta.trigger_tick` (ticks; wireskein 0.0.17 writes it instead of `trigger_index`).
-- (JA) トリガの線は `meta.trigger_tick`（刻み。wireskein 0.0.17 は `trigger_index` に代えてこれを書く）に引く。
+- (EN) **Breaking (follows wireskein's file layout; the format name stays `wireskein/1` until its official release):** a capture is one or more parts (wireskein-format §3.4). `readWireskein` returns the capture seen at its first part (`ticks`, `channels`, `meta` are the part's; the capture's own meta is `fileMeta`) with `parts`, `layout` (`timeline` / `segments`), `complete` and `lost`; `selectPart(cap, k)` shows another part. The markers / decode entries map is now `entries` (`parts` is the parts). A file without parts (written before) is refused with a clear message.
+- (JA) **互換のない変更（wireskein のファイルの配置に合わせる。形式の名前は、公式リリースまで `wireskein/1` のまま）:** キャプチャは 1 つ以上の区間（wireskein-format §3.4）。`readWireskein` は、最初の区間から見たキャプチャを返す（`ticks`、`channels`、`meta` はその区間のもの。キャプチャ自身の meta は `fileMeta`）。あわせて `parts`、`layout`（`timeline` / `segments`）、`complete`、`lost` を持つ。`selectPart(cap, k)` で別の区間から見る。マーカーと復号の項目の Map は `entries` に改めた（`parts` は区間）。区間の無いファイル（前の書き手のもの）は、分かるメッセージで断る。
+- (EN) A capture that lost data is shown as a failure: a red INCOMPLETE banner first, with what was lost (after which part, how long, why; the first three and the last of many). Parts are tabs (a timeline's losses and gaps between them); [ and ] move between them and `&part=K` opens one.
+- (JA) データが落ちたキャプチャは、失敗として示す: 最初に赤い INCOMPLETE の帯を出し、何が落ちたか（どの区間の後、長さ、理由。多いときは最初の 3 件と最後の 1 件）を添える。区間はタブで切り替える（timeline では、タブの間に落ちた長さと取っていない長さ）。[ と ] で移り、`&part=K` でその区間を開く。
+- (EN) Events channels (`encoding: "events"`, OEP capture format 1, wireskein-format §4.4) are read as `kind: "events"` (`quanta`, `levels`, `counts`, `startLevel`; `eventEdges`, `eventIndex`, `levelAfter`); data that does not follow (a level against its count's parity, past the channel, cut short) is refused. The viewer draws a band over each quantum the line changed in, darker with the count where it changed more than once, and measures pulses between changes (± a quantum).
+- (JA) events のチャンネル（`encoding: "events"`、OEP の形式 1、wireskein-format §4.4）を `kind: "events"`（`quanta`、`levels`、`counts`、`startLevel`。`eventEdges`、`eventIndex`、`levelAfter`）として読む。辻褄の合わないデータ（回数の偶奇とレベルが合わない、チャンネルを越える、途中で切れる）は断る。ビューアは、線が変わった刻みを帯で描き、2 回以上変わった刻みは濃くして回数を添え、変化と変化の間のパルスを（± 刻み 1 つで）測る。
+- (EN) Markers and annotation rows name their part (`part`, wireskein-format §5.2 / §5.3; none: part 0): shown on that part; a marker put in a file of several parts records it. Under `wireskein gui`, decoding and checks are asked for the part shown (`&part=K`). Another probe's file goes onto a timeline's other parts shifted by their tick0 (not onto a segment whose place is unknown).
+- (JA) マーカーと注釈の行は、どの区間のものかを持つ（`part`、wireskein-format §5.2 / §5.3。無ければ区間 0）。その区間を見せているときに描く。区間が 2 つ以上のファイルで付けたマーカーは、区間を記録する。`wireskein gui` 経由では、見せている区間の復号と照合を頼む（`&part=K`）。別のプローブのファイルは、timeline のほかの区間では tick0 だけずらして載せる（場所の分からない segments の区間には載せない）。
+- (EN) Interval channels (`interval-any` / `interval-latch`) are gone, as from the format: OEP's multirate became format 1's events.
+- (JA) 区間の要約のチャンネル（`interval-any` / `interval-latch`）はやめた。形式から外れたため（OEP の multirate は形式 1 の events になった）。
+- (EN) `edges()` passes whole bytes without a change (a long, quiet line is not read sample by sample).
+- (JA) `edges()` は、変化の無いバイトを丸ごと飛ばす（長くて静かな線を、1 サンプルずつ見ない）。
+- (EN) The trigger line is drawn at the part's `meta.trigger_tick` (ticks; wireskein 0.0.17 writes it instead of `trigger_index`).
+- (JA) トリガの線は、区間の `meta.trigger_tick`（刻み。wireskein 0.0.17 は `trigger_index` に代えてこれを書く）に引く。
 
 - (EN) Raw analog samples at the converter's end codes (0 and 2^valueBits − 1) are clipped, not voltages (OEP capture §1.2): `clipEnds(ch)` gives the end codes and voltages; the viewer marks clipped samples in red and the tooltip reads "≥ 2.450 V: clipped at the high end (raw 4095)".
 - (JA) 生の値のアナログで、変換器の端の値（0 と 2^valueBits − 1）は電圧ではなく「切れた」（OEP capture §1.2）: `clipEnds(ch)` が端の値とその電圧を返す。ビューアは切れたサンプルを赤で示し、マウスで「≥ 2.450 V: clipped at the high end (raw 4095)」と出す。

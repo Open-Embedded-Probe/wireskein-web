@@ -1,10 +1,11 @@
 // @ts-check
-import { alignedTick, clipEnds, edges, fileAlignment, levelAt, onto, readAlignment, readAnnotations, readCapture, readMarkers, VERSION, volts } from './wireskein-web.js';
+import { alignedTick, clipEnds, edges, eventEdges, eventIndex, fileAlignment, levelAt, onto, partOf, readAlignment, readAnnotations, readCapture, readMarkers, selectPart, VERSION, volts } from './wireskein-web.js';
 
 /** @typedef {import('../src/fileformat.js').Capture} Capture */
 /** @typedef {import('../src/fileformat.js').LogicChannel} LogicChannel */
 /** @typedef {import('../src/fileformat.js').AnalogChannel} AnalogChannel */
-/** @typedef {import('../src/fileformat.js').IntervalChannel} IntervalChannel */
+/** @typedef {import('../src/fileformat.js').EventsChannel} EventsChannel */
+/** @typedef {import('../src/fileformat.js').Channel} Channel */
 /** @typedef {import('../src/parts.js').Marker} Marker */
 /** @typedef {import('../src/parts.js').AnnotationRow} AnnotationRow */
 
@@ -29,16 +30,31 @@ const LABEL_PX = 110;      // about this many pixels between time labels
  * @property {number | null} trigger             tick of the trigger, when the probe reported one
  * @property {Map<string, import('../src/align.js').Alignment> | null} alignment   from attach/alignment.json
  * @property {boolean} aligned                    draw the analog channels on the aligned time
- * @property {AnnotationRow[]} rows               decoding annotations (sorted by start)
+ * @property {AnnotationRow[]} rows               decoding annotations shown: this part's and the added files' (sorted by start)
+ * @property {AnnotationRow[]} ownRows            this file's decoding annotations, every part's
  * @property {number | null} row                  annotation row under the mouse
- * @property {Marker[]} markers
+ * @property {Marker[]} markers                  this file's, every part's (each names its part)
  * @property {Marker[]} otherMarkers              markers of added files, on this time (shown, not saved here)
  * @property {AnnotationRow[]} otherRows           annotation rows of added files, on this time
  * @property {boolean} dirty                      markers changed since loaded / saved
  * @property {string | null} server               the file's path on `wireskein gui` (null: no server)
  * @property {string} name                        the file's name
- * @property {Capture} base                       the file itself (cap adds the channels of added files)
- * @property {{ name: string, prefix: string, entry: Record<string, any> | null, why: string }[]} others   added files
+ * @property {Capture} base                       the file itself, at the part shown (cap adds the channels of added files)
+ * @property {Other[]} others                      added files
+ */
+
+/**
+ * Another probe's file, on this file's ticks (those of its part 0, where the alignment is made): its channels,
+ * annotation rows and markers; shown on another part shifted by that part's tick0 (timeline), not on a part
+ * whose place is not known (segments without tick0).
+ * @typedef {object} Other
+ * @property {string} name
+ * @property {string} prefix
+ * @property {Record<string, any> | null} entry
+ * @property {string} why
+ * @property {Channel[]} channels
+ * @property {AnnotationRow[]} rows
+ * @property {Marker[]} markers
  */
 
 /** @type {View | null} */
@@ -106,12 +122,14 @@ async function open(file, rel = null) {
     const cap = await readCapture(new Uint8Array(await file.arrayBuffer()));
     state = {
       cap, t0: 0, t1: Math.max(1, cap.ticks), cursor: null, lane: null, trigger: null,
-      alignment: readAlignment(cap), aligned: true, rows: [], row: null,
+      alignment: readAlignment(cap), aligned: true, rows: [], ownRows: [], row: null,
       markers: readMarkers(cap) ?? [], dirty: false, server: null, name: file.name, base: cap, others: [], otherMarkers: [], otherRows: [],
-      edges: cap.channels.map((ch) => (ch.kind === 'logic' ? edges(ch) : [])),
-      volts: cap.channels.map((ch) => (ch.kind === 'analog' ? volts(ch) : null)),
+      edges: [], volts: [],
     };
     const params = new URLSearchParams(location.search);
+    const part = Number(params.get('part'));                           // &part=K: that part first
+    if (Number.isInteger(part) && part > 0 && part < cap.parts.length) state.base = selectPart(cap, part);
+    compose(state);
     state.aligned = params.get('aligned') !== '0';                    // &aligned=0: the probe's times
     state.trigger = triggerTick(cap, state);
     const view = params.get('view')?.split(',').map(Number);          // &view=T0,T1 in ticks
@@ -119,13 +137,14 @@ async function open(file, rel = null) {
     const cursor = params.get('cursor')?.split(',');                  // &cursor=TICK[,CHANNEL] (screenshots)
     if (cursor && Number.isFinite(Number(cursor[0]))) {
       state.cursor = Number(cursor[0]);
-      const k = cap.channels.findIndex((c) => c.name === cursor[1]);
+      const k = state.cap.channels.findIndex((c) => c.name === cursor[1]);
       state.lane = k >= 0 ? k : null;
     }
     state.server = rel && (await hasServer()) ? rel : null;
+    state.trigger = triggerTick(state.cap, state);
     setRows(state, readAnnotations(cap) ?? []);
-    showSummary(file.name, cap);
-    buildLanes(cap);
+    showSummary(file.name, state.cap);
+    buildLanes(state.cap);
     showMarkers();
     draw();
     if (state.server) loadFromServer(state);
@@ -142,18 +161,143 @@ async function open(file, rel = null) {
   }
 }
 
+/** The shift from the file's ticks (part 0's) to the part shown: its tick0, or null when not known. @param {View} v */
+function partShift(v) {
+  return v.base.part === 0 ? 0 : v.base.parts[v.base.part].tick0;
+}
+
+/**
+ * The view's capture: the part shown and the added files' channels on it, with their edges and volts, and the
+ * annotation rows and markers of that part.
+ * @param {View} v
+ */
+function compose(v) {
+  const s = partShift(v);
+  const shown = s === null ? [] : v.others;
+  const by = s ?? 0;
+  /** @type {(ch: Channel) => Channel} */
+  const shift = (ch) => (ch.kind === 'analog' ? { ...ch, t0Ticks: [ch.t0Ticks[0] - by * ch.t0Ticks[1], ch.t0Ticks[1]] }
+    : { ...ch, phase: ch.phase - by });
+  const extra = shown.flatMap((o) => o.channels.map(shift));
+  const ends = extra.map((c) => (c.kind !== 'analog' ? c.phase + c.n * c.step
+    : c.t0Ticks[0] / c.t0Ticks[1] + (c.n * v.base.tickHz[0] * c.rateHz[1]) / (v.base.tickHz[1] * c.rateHz[0])));
+  v.cap = { ...v.base, channels: [...v.base.channels, ...extra], ticks: Math.max(v.base.ticks, ...ends) };
+  v.edges = v.cap.channels.map((ch) => (ch.kind === 'logic' ? edges(ch) : ch.kind === 'events' ? eventEdges(ch) : []));
+  v.volts = v.cap.channels.map((ch) => (ch.kind === 'analog' ? volts(ch) : null));
+  const at = (/** @type {number} */ t) => t - by;
+  v.otherRows = shown.flatMap((o) => o.rows.map((r) => ({ ...r, items: r.items.map((it) => ({ ...it, s: at(it.s), e: it.e !== undefined ? at(it.e) : undefined })) })));
+  v.otherMarkers = shown.flatMap((o) => o.markers.map((m) => ({ ...m, t: at(m.t), end: m.end !== undefined ? at(m.end) : undefined })));
+  v.rows = [...v.ownRows.filter((r) => partOf(r) === v.base.part), ...v.otherRows];
+}
+
+/** This file's markers on the part shown. @param {View} v */
+const partMarkers = (v) => v.markers.filter((m) => partOf(m) === v.base.part);
+
+/** Show part k (wireskein-format §3.4): its own time from 0, its trigger, markers and annotations. @param {View} v @param {number} k */
+function showPart(v, k) {
+  if (k < 0 || k >= v.base.parts.length || k === v.base.part) return;
+  v.base = selectPart(v.base, k);
+  compose(v);
+  v.t0 = 0;
+  v.t1 = Math.max(1, v.cap.ticks);
+  v.trigger = triggerTick(v.cap, v);
+  showSummary(v.name, v.cap);
+  buildLanes(v.cap);
+  showMarkers();
+  draw();
+  if (v.server) loadFromServer(v);
+}
+
+/** The parts as tabs, with what was lost between them (a timeline's gaps). @param {View} v @param {HTMLElement} el */
+function partTabs(v, el) {
+  const parts = v.base.parts;
+  if (parts.length < 2) return;
+  const t = hz(v.base.tickHz);
+  const bar = document.createElement('div');
+  bar.className = 'parts';
+  bar.append(v.base.layout === 'segments' ? `${parts.length} acquisitions: ` : `${parts.length} parts: `);
+  const start0 = parts[0].meta.start_ns;
+  for (const [k, p] of parts.entries()) {
+    const b = document.createElement('button');
+    const sns = p.meta.start_ns;
+    const when = v.base.layout === 'timeline' && p.tick0 !== null ? `at ${fmtTime(p.tick0 / t, 4)}`
+      : typeof sns === 'number' && typeof start0 === 'number' ? `+${fmtTime((sns - start0) / 1e9, 4)}` : '';
+    b.textContent = `${v.base.layout === 'segments' ? '#' : ''}${k + 1}` + (when ? ` · ${when}` : '') + ` · ${fmtTime(p.ticks / t)}`
+      + (typeof p.meta.trigger_tick === 'number' ? ' · T' : '');
+    b.className = k === v.base.part ? 'current' : '';
+    b.title = 'Show this part ([ and ] move between parts)';
+    b.addEventListener('click', () => showPart(v, k));
+    bar.append(b);
+    for (const x of v.base.lost.filter((l) => l.afterPart === k)) {
+      const gap = document.createElement('span');
+      gap.className = 'lost';
+      gap.textContent = `lost ${x.ticks !== null ? fmtTime(x.ticks / t) : '(length unknown)'}${x.stopped ? ', stopped' : ''}`;
+      gap.title = x.reason;
+      bar.append(gap);
+    }
+    if (v.base.layout === 'timeline' && k + 1 < parts.length && !v.base.lost.some((l) => l.afterPart === k)
+        && p.tick0 !== null && parts[k + 1].tick0 !== null) {
+      const gap = /** @type {number} */ (parts[k + 1].tick0) - p.tick0 - p.ticks;
+      if (gap > 0) {
+        const span = document.createElement('span');
+        span.className = 'gap';
+        span.textContent = `not taken ${fmtTime(gap / t)}`;
+        bar.append(span);
+      }
+    }
+  }
+  el.append(bar);
+}
+
+/**
+ * A capture that lost data is a failure (wireskein-format §3.4): said first, with what was lost.
+ * @param {Capture} cap @param {HTMLElement} el
+ */
+function lossBanner(cap, el) {
+  if (cap.complete) return;
+  const t = hz(cap.tickHz);
+  const d = document.createElement('div');
+  d.className = 'incomplete';
+  const b = document.createElement('b');
+  b.textContent = 'INCOMPLETE: data was lost while capturing. This capture failed; what was taken is kept.';
+  d.append(b);
+  const shown = cap.lost.length <= 4 ? cap.lost : [...cap.lost.slice(0, 3), cap.lost[cap.lost.length - 1]];
+  for (const [i, x] of shown.entries()) {
+    if (cap.lost.length > 4 && i === 3) {
+      const more = document.createElement('div');
+      const sum = cap.lost.reduce((a, l) => a + (l.ticks ?? 0), 0);
+      more.textContent = `… ${cap.lost.length - 4} more (${cap.lost.length} losses, ${fmtTime(sum / t)} known in all)`;
+      d.append(more);
+    }
+    const line = document.createElement('div');
+    line.textContent = `${x.afterPart < 0 ? 'before the first part' : `after part ${x.afterPart + 1}`}: `
+      + `${x.ticks !== null ? fmtTime(x.ticks / t) : 'length unknown'} · ${x.reason}${x.stopped ? ' · the capture stopped there' : ''}`;
+    d.append(line);
+  }
+  el.append(d);
+}
+
 function showSummary(/** @type {string} */ name, /** @type {Capture} */ cap) {
   const tick = hz(cap.tickHz);
   const el = $('summary');
   el.hidden = false;
   el.innerHTML = '';
+  lossBanner(cap, el);
   const h = document.createElement('div');
-  h.innerHTML = `<b></b> · ${cap.channels.length} channels · ${fmtTime(cap.ticks / tick)} · tick ${fmtHz(tick)}`
+  const many = cap.parts.length > 1 ? ` · ${cap.layout === 'segments' ? 'acquisition' : 'part'} ${cap.part + 1} of ${cap.parts.length}` : '';
+  h.innerHTML = `<b></b>${many} · ${cap.channels.length} channels · ${fmtTime(cap.ticks / tick)} · tick ${fmtHz(tick)}`
     + (state?.trigger != null ? ` · trigger at ${fmtTime(state.trigger / tick, 4)}` : '');
   /** @type {HTMLElement} */ (h.querySelector('b')).textContent = name;
   el.append(h);
+  if (state) partTabs(state, el);
   const v0 = state;
   if (v0) {
+    if (v0.others.length && partShift(v0) === null) {
+      const d = document.createElement('div');
+      d.className = 'other unaligned';
+      d.textContent = 'The added files are not shown on this acquisition: its place on their time is not known (no tick0).';
+      el.append(d);
+    }
     for (const o of v0.others) {
       const d = document.createElement('div');
       d.className = o.entry ? 'other' : 'other unaligned';
@@ -215,7 +359,8 @@ function showDetails(cap) {
   const d = $('details');
   d.hidden = false;
   d.innerHTML = '';
-  const rows = [['meta', JSON.stringify(cap.meta)]];
+  const rows = [['meta', JSON.stringify(cap.fileMeta)]];
+  if (cap.parts.length > 1 || Object.keys(cap.parts[cap.part].meta).length) rows.push([`part ${cap.part + 1} meta`, JSON.stringify(cap.parts[cap.part].meta)]);
   for (const c of cap.channels) {
     if (Object.keys(c.acquisition).length) rows.push([`${c.name} acquisition`, JSON.stringify(c.acquisition)]);
   }
@@ -265,8 +410,8 @@ function buildLanes(/** @type {Capture} */ cap) {
   for (const [i, ch] of cap.channels.entries()) {
     const sub = ch.kind === 'logic'
       ? `${fmtHz(tick / ch.step)}${ch.step > 1 && Number.isInteger(ch.step) ? ` (1/${ch.step})` : ''}`
-      : ch.kind === 'interval'
-        ? `${ch.encoding === 'interval-any' ? 'any' : 'latch'}-${ch.active ? 'high' : 'low'} per ${fmtTime(ch.step / tick)}`
+      : ch.kind === 'events'
+        ? `changes per ${fmtTime(ch.step / tick)}` + (ch.step > 1 ? ` (1/${ch.step})` : '')
         : `${fmtHz(hz(ch.rateHz))} ${ch.encoding === 'analog' && !state?.volts[i] ? 'raw' : ch.unit}`;
     const { lane, canvas } = row(ch.name, sub, ch.kind === 'analog' ? ANALOG_H : LOGIC_H, 'channel');
     canvas.dataset.index = String(i);
@@ -299,35 +444,30 @@ function annotationLane(lanes, r, k) {
  */
 async function addFile(v, file, rel = null) {
   const other = await readCapture(new Uint8Array(await file.arrayBuffer()));
-  const { entry, why } = await fileAlignment(other, v.base, v.name);
+  const { entry, why } = await fileAlignment(other, selectPart(v.base, 0), v.name);
   const stem = file.name.replace(/\.[^.]*$/, '');
   const prefix = `${stem}:`;
-  const channels = onto(v.base, other, entry, prefix);
-  v.others.push({ name: file.name, prefix, entry, why });
+  const reference = selectPart(v.base, 0);                  // the alignment is onto this file's ticks (part 0's)
+  const channels = onto(reference, other, entry, prefix);
   const a = entry ? entry.offset_ticks : 0;
   const b = entry ? entry.scale : hz(v.base.tickHz) / hz(other.tickHz);
   const at = (/** @type {number} */ t) => a + b * t;
-  let rows = readAnnotations(other);
+  let rows = readAnnotations(other)?.filter((r) => partOf(r) === other.part) ?? null;
   if (!rows && rel && v.server) {
     try {
       const r = await fetch(api('/api/annotations', rel));
       if (r.ok) rows = readAnnotations(await r.json());
     } catch { /* shown without them */ }
   }
-  for (const r of rows ?? []) {
-    v.otherRows.push({ ...r, name: prefix + r.name, near: r.near ? prefix + r.near : undefined,
-                  items: r.items.map((it) => ({ ...it, s: at(it.s), e: it.e !== undefined ? at(it.e) : undefined }))
-                    .sort((x, y) => x.s - y.s) });
-  }
-  v.rows = [...v.rows.filter((r) => !v.otherRows.includes(r) && !r.name.startsWith(prefix)), ...v.otherRows];
-  for (const m of readMarkers(other) ?? []) {
-    v.otherMarkers.push({ ...m, label: prefix + m.label, t: at(m.t), end: m.end !== undefined ? at(m.end) : undefined });
-  }
-  const ends = channels.map((c) => (c.kind !== 'analog' ? c.phase + c.n * c.step
-    : c.t0Ticks[0] / c.t0Ticks[1] + (c.n * v.base.tickHz[0] * c.rateHz[1]) / (v.base.tickHz[1] * c.rateHz[0])));
-  v.cap = { ...v.cap, channels: [...v.cap.channels, ...channels], ticks: Math.max(v.cap.ticks, ...ends) };
-  v.edges = v.cap.channels.map((ch) => (ch.kind === 'logic' ? edges(ch) : []));
-  v.volts = v.cap.channels.map((ch) => (ch.kind === 'analog' ? volts(ch) : null));
+  v.others.push({
+    name: file.name, prefix, entry, why, channels,
+    rows: (rows ?? []).map((r) => ({ ...r, name: prefix + r.name, near: r.near ? prefix + r.near : undefined, part: undefined,
+                                     items: r.items.map((it) => ({ ...it, s: at(it.s), e: it.e !== undefined ? at(it.e) : undefined }))
+                                       .sort((x, y) => x.s - y.s) })),
+    markers: (readMarkers(other) ?? []).filter((m) => partOf(m) === other.part)
+      .map((m) => ({ ...m, label: prefix + m.label, t: at(m.t), end: m.end !== undefined ? at(m.end) : undefined, part: undefined })),
+  });
+  compose(v);
   showSummary(v.name, v.cap);
   buildLanes(v.cap);
   draw();
@@ -343,8 +483,11 @@ async function hasServer() {
   } catch { return false; }
 }
 
-/** @param {string} path @param {string} rel */
-const api = (path, rel) => `${path}?file=${encodeURIComponent(rel)}`;
+/** @param {string} path @param {string} rel @param {number | null} [part]   a part of a file of several (wireskein-format §3.4) */
+const api = (path, rel, part = null) => `${path}?file=${encodeURIComponent(rel)}${part !== null ? `&part=${part}` : ''}`;
+
+/** The part to name to the server: the one shown, when the file has several. @param {View} v */
+const serverPart = (v) => (v.base.parts.length > 1 ? v.base.part : null);
 
 /** @param {string} method @param {string} url @param {unknown} body */
 async function send(method, url, body) {
@@ -353,9 +496,10 @@ async function send(method, url, body) {
   return r.json();
 }
 
-/** This file's annotation rows (the added files' stay). @param {View} v @param {AnnotationRow[]} rows */
+/** This file's annotation rows, every part's (the added files' stay). @param {View} v @param {AnnotationRow[]} rows */
 function setRows(v, rows) {
-  v.rows = [...rows.map((r) => ({ ...r, items: [...r.items].sort((a, b) => a.s - b.s) })), ...v.otherRows];
+  v.ownRows = rows.map((r) => ({ ...r, items: [...r.items].sort((a, b) => a.s - b.s) }));
+  v.rows = [...v.ownRows.filter((r) => partOf(r) === v.base.part), ...v.otherRows];
 }
 
 /** Annotations (stored or decoded now), the run's checks for this capture, and the note form. @param {View} v */
@@ -364,12 +508,15 @@ async function loadFromServer(v) {
   showChecks(null);
   addNoteForm(v);
   try {
-    const r = await fetch(api('/api/annotations', rel));
+    const part = v.base.part;
+    const r = await fetch(api('/api/annotations', rel, serverPart(v)));
     if (r.ok) {
       const doc = await r.json();
       const rows = readAnnotations(doc);
-      if (rows && state === v) {
-        setRows(v, rows);
+      if (rows && state === v && v.base.part === part) {     // decoded now: this part's (stored: every part's, each named)
+        setRows(v, [...v.ownRows.filter((x) => partOf(x) !== part),
+                    ...rows.map((x) => ({ ...x, part: x.part ?? (doc.stored === true ? undefined : part) }))
+                      .filter((x) => partOf(x) === part)]);
         buildLanes(v.cap);
         draw();
         showDecodeState(v, doc.stored === true);
@@ -377,7 +524,7 @@ async function loadFromServer(v) {
     }
   } catch { /* no annotations: the lanes stay as they are */ }
   try {
-    const r = await fetch(api('/api/checks', rel));
+    const r = await fetch(api('/api/checks', rel, serverPart(v)));
     if (r.ok && state === v) showChecks(await r.json());
   } catch { /* not in a run */ }
 }
@@ -397,7 +544,7 @@ function showDecodeState(v, stored) {
     b.textContent = 'Store in the file';
     b.addEventListener('click', async () => {
       b.disabled = true;
-      try { await send('POST', api('/api/annotations', /** @type {string} */ (v.server)), {}); showDecodeState(v, true); }
+      try { await send('POST', api('/api/annotations', /** @type {string} */ (v.server), serverPart(v)), {}); showDecodeState(v, true); }
       catch (error) { b.disabled = false; b.textContent = `Failed: ${error instanceof Error ? error.message : error}`; }
     });
     div.append(b);
@@ -483,7 +630,8 @@ function showMarkers() {
     }
   }
   el.append(h);
-  const sorted = [...v.markers].sort((a, b) => a.t - b.t);
+  const sorted = [...v.markers].sort((a, b) => partOf(a) - partOf(b) || a.t - b.t);
+  const many = v.base.parts.length > 1;
   for (const m of sorted) {
     const row = document.createElement('div');
     row.className = 'marker-row';
@@ -491,6 +639,7 @@ function showMarkers() {
     go.textContent = m.label;
     go.title = 'Go there';
     go.addEventListener('click', () => {
+      showPart(v, partOf(m));
       const span = v.t1 - v.t0;
       const mid = m.end !== undefined ? (m.t + m.end) / 2 : m.t;
       v.t0 = mid - span / 2;
@@ -498,7 +647,7 @@ function showMarkers() {
       draw();
     });
     const when = document.createElement('span');
-    when.textContent = ` ${fmtTime(m.t / t, 4)}` + (m.end !== undefined ? ` – ${fmtTime(m.end / t, 4)}` : '')
+    when.textContent = (many ? ` part ${partOf(m) + 1}:` : '') + ` ${fmtTime(m.t / t, 4)}` + (m.end !== undefined ? ` – ${fmtTime(m.end / t, 4)}` : '')
       + (m.note ? ` · ${m.note}` : '');
     const del = document.createElement('button');
     del.textContent = '×';
@@ -518,7 +667,8 @@ function showMarkers() {
 function addMarker(v, tick) {
   const label = prompt('Marker name', `M${v.markers.length + 1}`);
   if (label === null || !label.trim()) return;
-  v.markers.push({ t: Math.round(tick), label: label.trim(), by: 'viewer', time: new Date().toISOString() });
+  v.markers.push({ t: Math.round(tick), label: label.trim(), by: 'viewer', time: new Date().toISOString(),
+                   ...(v.base.parts.length > 1 ? { part: v.base.part } : {}) });
   v.dirty = true;
   showMarkers();
   draw();
@@ -554,7 +704,7 @@ function measure(v, index, tick) {
   const cap = v.cap;
   const t = hz(cap.tickHz);
   const ch = cap.channels[index];
-  if (ch.kind === 'interval') return measureInterval(ch, tick, t);
+  if (ch.kind === 'events') return measureEvents(ch, tick, t);
   if (ch.kind === 'logic') {
     if (tick < ch.phase || tick >= ch.phase + ch.n * ch.step) return [`${ch.name}: no samples here`];
     const p = pulseAt(ch, v.edges[index], tick);
@@ -612,7 +762,7 @@ function colors() {
   return { line: c('--line'), band: c('--band'), grid: c('--grid'), muted: c('--muted'), cursor: c('--cursor'),
            pulse: c('--pulse'), window: c('--window'), track: c('--track'), trigger: c('--trigger'),
            marker: c('--marker'), span: c('--span'), ok: c('--anno'), warn: c('--anno-warn'), error: c('--anno-error'),
-           annoText: c('--anno-text') };
+           annoText: c('--anno-text'), busy: c('--busy') };
 }
 /** @typedef {ReturnType<typeof colors>} Colors */
 
@@ -686,7 +836,7 @@ function draw() {
     const index = Number(canvas.dataset.index);
     const ch = v.cap.channels[index];
     if (ch.kind === 'logic') drawLogic(g, v, index, ch, x, w, h, col);
-    else if (ch.kind === 'interval') drawInterval(g, v, ch, x, w, h, col);
+    else if (ch.kind === 'events') drawEvents(g, v, index, ch, x, w, h, col);
     else drawAnalog(g, v, index, ch, x, w, h, col);
     if (v.cursor !== null) {
       const px = Math.round(x(v.cursor)) + 0.5;
@@ -701,7 +851,7 @@ function draw() {
 /** Shaded marker spans (behind the traces). @param {CanvasRenderingContext2D} g @param {View} v @param {(t: number) => number} x @param {number} h @param {Colors} col */
 function drawMarkerSpans(g, v, x, h, col) {
   g.fillStyle = col.span;
-  for (const m of [...v.markers, ...v.otherMarkers]) {
+  for (const m of [...partMarkers(v), ...v.otherMarkers]) {
     if (m.end !== undefined) g.fillRect(x(m.t), 0, x(m.end) - x(m.t), h);
   }
 }
@@ -715,7 +865,7 @@ function drawMarkerLines(g, v, x, h, col, ruler) {
   g.strokeStyle = col.marker;
   g.fillStyle = col.marker;
   g.lineWidth = 1.5;
-  for (const m of [...v.markers, ...v.otherMarkers]) {
+  for (const m of [...partMarkers(v), ...v.otherMarkers]) {
     g.setLineDash(v.markers.includes(m) ? [] : [2, 3]);             // an added file's: dashed
     for (const tick of m.end !== undefined ? [m.t, m.end] : [m.t]) {
       const px = Math.round(x(tick)) + 0.5;
@@ -853,61 +1003,111 @@ function drawLogic(g, v, index, ch, x, w, h, col) {
 }
 
 /**
- * What an interval channel says at a tick: only its summary, never a level it does not know.
- * @param {IntervalChannel} ch @param {number} tick @param {number} t ticks per second
+ * The steady stretch of an events channel around quantum q (none inside a quantum that changed): the quanta of the
+ * events before and after it (null: the capture's start or end), and the event index before.
+ * @param {EventsChannel} ch @param {number} q
  */
-function measureInterval(ch, tick, t) {
-  const k = Math.floor((tick - ch.phase) / ch.step);
-  if (k < 0 || k >= ch.n) return [`${ch.name}: no values here`];
-  const name = (/** @type {number} */ lv) => (lv ? 'high' : 'low');
-  const val = ch.values[k];
-  const span = `${fmtTime((ch.phase + k * ch.step) / t, 4)} + ${fmtTime(ch.step / t)}`;
-  if (ch.encoding === 'interval-any') {
-    return [val === ch.active ? `${ch.name}: ${name(ch.active)} at some time in this interval`
-      : `${ch.name}: ${name(1 - ch.active)} all through this interval`, `interval ${k}: ${span}`];
-  }
-  return [`${ch.name}: ${name(val & 1)} at the end of this interval`,
-          val & 2 ? `went ${name(ch.active)} inside it` : `did not go ${name(ch.active)} inside it`, `interval ${k}: ${span}`];
+function eventStretch(ch, q) {
+  const i = eventIndex(ch, q);
+  return { i, prev: i >= 0 ? ch.quanta[i] : null, next: i + 1 < ch.quanta.length ? ch.quanta[i + 1] : null };
 }
 
 /**
- * An interval channel: a band where the summary says the line was active somewhere (any) or changed (latch), a line
- * where it fixes the level.
- * @param {CanvasRenderingContext2D} g @param {View} v @param {IntervalChannel} ch
+ * What an events channel says at a tick (wireskein-format §4.4): the level between changes; in a quantum that
+ * changed, how many times and the levels around it - never a level inside it that it does not know.
+ * @param {EventsChannel} ch @param {number} tick @param {number} t ticks per second
+ */
+function measureEvents(ch, tick, t) {
+  const q = Math.floor((tick - ch.phase) / ch.step);
+  if (q < 0 || q >= ch.n) return [`${ch.name}: no samples here`];
+  const name = (/** @type {number} */ lv) => (lv ? 'high' : 'low');
+  const span = fmtTime(ch.step / t);
+  const { i, prev, next } = eventStretch(ch, q);
+  if (prev === q) {
+    const before = i > 0 ? ch.levels[i - 1] : ch.startLevel;
+    const c = ch.counts[i];
+    return [`${ch.name}: ${c >= 127 ? 'at least 127 changes' : c === 1 ? '1 change' : `${c} changes`} in these ${span}`,
+            `${name(before)} before, ${name(ch.levels[i])} at the end` + (c > 1 ? ' (the levels between: not kept)' : ''),
+            `quantum ${q}: ${fmtTime((ch.phase + q * ch.step) / t, 4)} + ${span}`];
+  }
+  const level = i >= 0 ? ch.levels[i] : ch.startLevel;
+  const out = [`${ch.name}: ${name(level)}`];
+  if (prev === null || next === null) {
+    out.push(`${name(level)} ${prev === null ? 'since the first sample' : 'until the last sample'}`);
+    return out;
+  }
+  const err = ch.step > 1 ? ` ± ${span}` : '';
+  const width = ((next - prev) * ch.step) / t;               // change to change, each somewhere in its quantum
+  out.push(`this ${name(level)}: ${fmtTime(width)}${err}`);
+  if (ch.counts[i] > 1 || ch.counts[i + 1] > 1) {
+    out.push('a quantum at its end changed more than once: the pulses there are not known');
+  } else if (i + 2 < ch.quanta.length && ch.counts[i + 2] === 1) {
+    const after = ((ch.quanta[i + 2] - next) * ch.step) / t;
+    const period = width + after;
+    const high = level ? width : after;
+    out.push(`next ${name(1 - level)}: ${fmtTime(after)}${err}`);
+    out.push(`period ${fmtTime(period)} · ${fmtHz(1 / period)} · duty ${((high / period) * 100).toFixed(1)} %`);
+  }
+  return out;
+}
+
+/**
+ * An events channel: the level as a line between changes; a change at step 1 as an edge; at a coarser step, a band
+ * over the quantum it happened in (darker, with the count when it fits, where it changed more than once). Many
+ * changes in one pixel column: one bar, full height.
+ * @param {CanvasRenderingContext2D} g @param {View} v @param {number} index @param {EventsChannel} ch
  * @param {(t: number) => number} x @param {number} w @param {number} h @param {Colors} col
  */
-function drawInterval(g, v, ch, x, w, h, col) {
+function drawEvents(g, v, index, ch, x, w, h, col) {
   const { t0, t1 } = v;
   const y = (/** @type {number} */ lv) => (lv ? 10 : h - 10);
-  const k0 = Math.max(0, Math.floor((t0 - ch.phase) / ch.step));
-  const k1 = Math.min(ch.n - 1, Math.ceil((t1 - ch.phase) / ch.step));
-  const per = Math.max(1, Math.ceil(((t1 - t0) / w) / ch.step));    // values per pixel column, at least 1
-  const latch = ch.encoding === 'interval-latch';
-  g.lineWidth = 1.5;
-  for (let k = k0; k <= k1; k += per) {
-    let busy = false, lv = 0;
-    for (let j = k; j < Math.min(k + per, ch.n); j++) {
-      const val = ch.values[j];
-      const prev = j > 0 ? ch.values[j - 1] & 1 : val & 1;
-      if (latch ? (val & 2) !== 0 || (val & 1) !== prev : val === ch.active) busy = true;
-      lv = latch ? val & 1 : val;
-    }
-    const a = x(ch.phase + k * ch.step), b = x(ch.phase + Math.min(k + per, ch.n) * ch.step);
-    if (busy) {
-      g.fillStyle = col.band;
-      g.fillRect(a, y(1), Math.max(1, b - a), y(0) - y(1));
-      if (latch) {                                    // the end level is known: a tick at the interval's end
-        g.fillStyle = col.line;
-        g.fillRect(Math.max(a, b - 2), y(lv) - 0.75, 2, 1.5);
-      } else {
-        g.strokeStyle = col.line;
-        g.strokeRect(a + 0.5, y(1) + 0.5, Math.max(0, b - a - 1), y(0) - y(1) - 1);
-      }
-    } else {
-      g.fillStyle = col.line;
-      g.fillRect(a, y(lv) - 0.75, Math.max(1, b - a), 1.5);
-    }
+  const end = ch.phase + ch.n * ch.step;
+  if (v.cursor !== null && v.lane === index && v.cursor >= ch.phase && v.cursor < end) {   // the stretch under the mouse
+    const { prev, next } = eventStretch(ch, Math.floor((v.cursor - ch.phase) / ch.step));
+    const a = x(prev === null ? ch.phase : ch.phase + prev * ch.step + (ch.step > 1 ? ch.step : 0));
+    const b = x(next === null ? end : ch.phase + next * ch.step);
+    g.fillStyle = col.pulse;
+    g.fillRect(a, 0, b - a, h);
   }
+  const q0 = Math.max(0, Math.floor((t0 - ch.phase) / ch.step));
+  const q1 = Math.min(ch.n - 1, Math.ceil((t1 - ch.phase) / ch.step));
+  let i = eventIndex(ch, q0 - 1) + 1;                         // the first event at or after q0
+  let level = i > 0 ? ch.levels[i - 1] : ch.startLevel;
+  let from = Math.max(ch.phase, t0);
+  let lastPx = -Infinity;
+  g.fillStyle = col.line;
+  const flat = (/** @type {number} */ a, /** @type {number} */ b, /** @type {number} */ lv) => {
+    if (b > a) g.fillRect(x(a), y(lv) - 0.75, Math.max(1, x(b) - x(a)), 1.5);
+  };
+  g.font = '11px system-ui, sans-serif';
+  for (; i < ch.quanta.length && ch.quanta[i] <= q1; i++) {
+    const q = ch.quanta[i], c = ch.counts[i], lv = ch.levels[i];
+    const a = ch.phase + q * ch.step, b = a + ch.step;
+    const px = Math.floor(x(a));
+    if (px === lastPx) { level = lv; from = b; continue; }   // this pixel column already shows a change
+    flat(from, a, level);
+    lastPx = px;
+    if (x(b) - x(a) < 2) {                                    // narrower than the line: a bar
+      g.fillRect(px, y(1) - 0.75, 1, y(0) - y(1) + 1.5);
+    } else if (ch.step === 1 && c === 1) {                    // the change at this tick
+      g.fillRect(x(a) - 0.75, y(1) - 0.75, 1.5, y(0) - y(1) + 1.5);
+    } else {                                                  // somewhere in this quantum
+      g.fillStyle = c > 1 ? col.busy : col.band;
+      g.fillRect(x(a), 4, x(b) - x(a), h - 8);
+      g.fillStyle = col.line;
+      g.fillRect(x(a), y(level) - 0.75, 1.5, 1.5);
+      g.fillRect(x(b) - 1.5, y(lv) - 0.75, 1.5, 1.5);
+      const label = c >= 127 ? '≥127' : `${c}`;
+      if (c > 1 && g.measureText(label).width + 6 < x(b) - x(a)) {
+        g.fillStyle = col.muted;
+        g.fillText(label, x(a) + 3, h / 2 + 4);
+        g.fillStyle = col.line;
+      }
+    }
+    level = lv;
+    from = b;
+  }
+  flat(from, Math.min(end, t1), level);
 }
 
 /**
@@ -1122,6 +1322,8 @@ document.addEventListener('keydown', (event) => {
     '+': () => zoom(0.8, center), '=': () => zoom(0.8, center),
     '-': () => zoom(1.25, center), _: () => zoom(1.25, center),
     Home: fit, 0: fit,
+    '[': () => { if (state) showPart(state, state.base.part - 1); },
+    ']': () => { if (state) showPart(state, state.base.part + 1); },
     m: () => { if (state && state.cursor !== null) addMarker(state, state.cursor); },
     M: () => { if (state && state.cursor !== null) addMarker(state, state.cursor); },
   };
