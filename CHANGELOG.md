@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.0.7
+
 - (EN) A timeline's parts on one time axis (the default for a stream cut by its gaps): each lane draws every part's channel at its tick0, where data was lost shaded red (and marked in the overview strip), time not taken grey; the tooltip there says LOST and why. Tabs and [ ] go to a part; a checkbox (`&joined=0`) shows one part at a time. Markers, annotation rows (one lane per row across the parts) and the trigger are put on the same axis; under `wireskein gui` every part is decoded.
 - (JA) timeline の区間を 1 本の時間軸に並べる（隙間で区切ったストリームの既定）: 各レーンは、区間ごとのチャンネルをその tick0 に描く。データが落ちた所は赤く（全体の帯にも印）、取っていない所は灰色にし、そこでのマウスの説明は LOST とその理由を出す。タブと [ ] はその区間へ移る。チェックボックス（`&joined=0`）で 1 区間ずつにも見られる。マーカー、注釈の行（区間をまたいで 1 行）、トリガも同じ時間軸に載せる。`wireskein gui` 経由では、すべての区間を復号する。
 - (EN) **Breaking (follows wireskein's file layout; the format name stays `wireskein/1` until its official release):** a capture is one or more parts (wireskein-format §3.4). `readWireskein` returns the capture seen at its first part (`ticks`, `channels`, `meta` are the part's; the capture's own meta is `fileMeta`) with `parts`, `layout` (`timeline` / `segments`), `complete` and `lost`; `selectPart(cap, k)` shows another part. The markers / decode entries map is now `entries` (`parts` is the parts). A file without parts (written before) is refused with a clear message.
