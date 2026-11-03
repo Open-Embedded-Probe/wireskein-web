@@ -11,7 +11,7 @@ import { analogTick } from './fileformat.js';
 /** @typedef {import('./fileformat.js').AnalogChannel} AnalogChannel */
 /** @typedef {import('./fileformat.js').Ratio} Ratio */
 
-export const ALIGNMENT_FORMAT = 'wireskein-alignment/0';
+export const ALIGNMENT_FORMAT = 'wireskein-alignment/1';
 
 /**
  * @typedef {object} Alignment

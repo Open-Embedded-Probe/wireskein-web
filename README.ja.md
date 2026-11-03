@@ -60,6 +60,7 @@ for (const ch of cap.channels) {
   - ファイル全体の `parts`、`layout`（`"timeline"` か `"segments"`）、`complete`、`lost`、`skipped`（この版が読めない形のチャンネル）、`attachments`、`notes`
   - `selectPart(cap, k)` で、区間 k から見たものになります。
 - `complete: false` は、取得の途中でデータが落ちたことを表します（`lost`: どの区間の後で、何刻み、なぜ）。そのキャプチャは失敗で、読み手はそう示します。
+- 形式の読み手の決まりに反するファイルは、反した決まりを示して断ります（`complete` が無い、`complete` と `lost` が食い違う、layout が timeline / segments 以外、timeline の区間に tick0 が無い、events のチャンネルに start_level が無い、ファイルに無い区間のマーカーや注釈の行）。そうでないかもしれないものとして読むことはしません。
 - ロジックのチャンネルは、1 サンプル 1 ビットです（`levelAt(ch, k)`）。サンプル k は、刻み `phase + k * step` にあります。
 - events のチャンネル（`kind: "events"`。OEP の形式 1）は、`phase` から `step` 刻みの刻み（quantum）ごとに、線の変化を持ちます。出来事ごとに、刻みの番号（`quanta`）、刻みの終わりのレベル（`levels`）、その中で変わった回数（`counts`。127 は「少なくとも 127」）です。刻み 0 の前のレベルは `startLevel` です。`eventEdges(ch)` は、レベルが移った変化の刻み（wireskein と同じく、刻みの最後の刻み）を返し、`levelAfter(ch, q)` は刻み q の終わりのレベルを返します。
 - アナログのチャンネルは、生の値（`encoding: "analog"`。`zero` と `scaleNv` 付き）か、電圧（`"analog-f32"`）です。サンプル k は、刻み `analogTick(ch, cap.tickHz, k)` にあります。

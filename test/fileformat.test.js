@@ -58,11 +58,20 @@ test('channels of unknown encodings are skipped, not misread', async () => {
 test('another format is refused', async () => {
   const { zipSync } = await import('./zipwriter.js');
   await assert.rejects(readWireskein(zipSync({ 'wireskein.json': '{"format": "wireskein/9"}' })), /wireskein\/9/);
-  await assert.rejects(readWireskein(zipSync({ 'wireskein.json': '{"format": "wireskein/0"}' })), /a beta WireSkein file/);
   await assert.rejects(readWireskein(zipSync({ 'capture.json': '{"format": "wireskein-capture/0"}' })), /not a WireSkein file/);
   await assert.rejects(readWireskein(zipSync({ 'wireskein.json': '{"format": "wireskein/1"}' })), /no capture/);
-  await assert.rejects(readWireskein(zipSync({ 'wireskein.json': '{"format": "wireskein/1"}',
-                                               'capture.json': '{"tick_hz": [1, 1], "ticks": 0, "channels": []}' })), /no parts/);
+  const head = (/** @type {object} */ h) => zipSync({ 'wireskein.json': '{"format": "wireskein/1"}',
+                                                      'capture.json': JSON.stringify(h) });
+  const part = { ticks: 1, tick0: 0, channels: [], meta: {} };
+  // the reader's rules (wireskein-format §3.4): never a missing complete read as complete, an unknown layout as a timeline
+  await assert.rejects(readWireskein(head({ tick_hz: [1, 1], layout: 'timeline', parts: [part] })), /no complete/);
+  await assert.rejects(readWireskein(head({ tick_hz: [1, 1], layout: 'timeline', complete: true,
+                                            lost: [{ after_part: 0, reason: 'x' }], parts: [part] })), /lost has 1/);
+  await assert.rejects(readWireskein(head({ tick_hz: [1, 1], layout: 'stack', complete: true, parts: [part] })),
+                       /layout "stack"/);
+  await assert.rejects(readWireskein(head({ tick_hz: [1, 1], layout: 'timeline', complete: true, parts: [] })), /no parts/);
+  await assert.rejects(readWireskein(head({ tick_hz: [1, 1], layout: 'timeline', complete: true,
+                                            parts: [{ ticks: 1, channels: [], meta: {} }] })), /without its tick0/);
 });
 
 test('VERSION matches package.json', () => {
@@ -75,7 +84,7 @@ test('an alignment from wireskein align is read, an unknown one is not', async (
   const cap = await readWireskein(readFileSync(fixture));
   assert.equal(readAlignment(cap), null);
   const enc = (/** @type {unknown} */ o) => new TextEncoder().encode(JSON.stringify(o));
-  cap.attachments.set('alignment.json', enc({ format: 'wireskein-alignment/0', channels: {
+  cap.attachments.set('alignment.json', enc({ format: 'wireskein-alignment/1', channels: {
     VBUS: { offset_ticks: 100, scale: 1.001, reference: 'CLK', via: 'VBUS' } } }));
   const a = readAlignment(cap);
   assert.equal(a?.get('VBUS')?.scale, 1.001);
@@ -169,10 +178,13 @@ test('markers and annotation rows name their part (none: part 0)', async () => {
   const { partOf, readAnnotations, readMarkers } = await import('../src/index.js');
   const cap = await readWireskein(readFileSync(fixture));
   const enc = (/** @type {unknown} */ o) => new TextEncoder().encode(JSON.stringify(o));
-  cap.entries.set('markers/markers.json', enc({ format: 'wireskein-markers/0', markers: [
-    { t: 5, label: 'a' }, { t: 7, label: 'b', part: 2 }, { t: 9, label: 'c', part: 'x' }] }));
-  assert.deepEqual(readMarkers(cap)?.map((m) => [m.label, partOf(m)]), [['a', 0], ['b', 2]]);
-  const rows = readAnnotations({ format: 'wireskein-annotations/0', rows: [{ name: 'uart', part: 1, items: [] }] });
+  cap.entries.set('markers/markers.json', enc({ format: 'wireskein-markers/1', markers: [
+    { t: 5, label: 'a' }, { t: 7, label: 'b', part: 0 }, { t: 9, label: 'c', part: 'x' }] }));
+  assert.deepEqual(readMarkers(cap)?.map((m) => [m.label, partOf(m)]), [['a', 0], ['b', 0]]);
+  // a part the file does not have is refused, not drawn on another part
+  cap.entries.set('markers/markers.json', enc({ format: 'wireskein-markers/1', markers: [{ t: 7, label: 'b', part: 2 }] }));
+  assert.throws(() => readMarkers(cap), /markers of a part the file does not have/);
+  const rows = readAnnotations({ format: 'wireskein-annotations/1', rows: [{ name: 'uart', part: 1, items: [] }] });
   assert.deepEqual(rows?.map(partOf), [1]);
 });
 

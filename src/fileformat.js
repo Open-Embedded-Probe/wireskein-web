@@ -126,17 +126,12 @@ export async function readWireskein(input) {
   };
   if (!entries.has('wireskein.json')) throw new Error('not a WireSkein file (no wireskein.json)');
   const format = JSON.parse(await text('wireskein.json')).format;
-  if (format === 'wireskein/0') {
-    throw new Error(`a beta WireSkein file (wireskein/0, from wireskein 0.0.8-0.0.12); this version reads ${FORMAT} only`);
-  }
   if (format !== FORMAT) {
     throw new Error(`format ${JSON.stringify(format)}, this version reads ${JSON.stringify(FORMAT)} (a newer wireskein-web may read it)`);
   }
   if (!entries.has('capture.json')) throw new Error('the file holds no capture');
   const head = JSON.parse(await text('capture.json'));
-  if (!Array.isArray(head.parts) || !head.parts.length) {
-    throw new Error('capture.json has no parts (a file from before wireskein-format §3.4: written by an older wireskein)');
-  }
+  checkHead(head);
   /** @type {{ name: string, encoding: string }[]} */
   const skipped = [];
   const seen = new Set();
@@ -174,10 +169,30 @@ export async function readWireskein(input) {
     stopped: x.stopped === true }));
   /** @type {Capture} */
   const cap = { tickHz: head.tick_hz, ticks: 0, meta: {}, channels: [], part: 0, parts,
-                layout: head.layout === 'segments' ? 'segments' : 'timeline', complete: head.complete !== false && !lost.length,
+                layout: head.layout, complete: head.complete,
                 lost, fileMeta: head.meta ?? {}, skipped, attachments, entries: extra, notes,
                 id: typeof head.id === 'string' ? head.id : null };
   return selectPart(cap, 0);
+}
+
+/**
+ * The reader's rules for capture.json (wireskein-format §3, §3.4): a file that breaks one is refused, saying which -
+ * never a missing `complete` read as complete, nor an unknown layout as a timeline.
+ * @param {any} head
+ */
+function checkHead(head) {
+  if (typeof head.complete !== 'boolean') throw new Error('capture.json has no complete (true / false)');
+  const lost = Array.isArray(head.lost) ? head.lost : [];
+  if (head.complete === (lost.length > 0)) {
+    throw new Error(`capture.json: complete is ${head.complete} but lost has ${lost.length} entries`);
+  }
+  if (head.layout !== 'timeline' && head.layout !== 'segments') {
+    throw new Error(`capture.json: layout ${JSON.stringify(head.layout)}: timeline or segments`);
+  }
+  if (!Array.isArray(head.parts) || !head.parts.length) throw new Error('capture.json has no parts');
+  if (head.layout === 'timeline' && head.parts.some((/** @type {any} */ p) => typeof p.tick0 !== 'number')) {
+    throw new Error('capture.json: a timeline part without its tick0');
+  }
 }
 
 /**
@@ -198,12 +213,15 @@ export function selectPart(cap, k) {
  */
 function channelOf(c, data) {
   const acquisition = c.acquisition ?? {};
+  if (c.encoding === 'events' && c.start_level !== 0 && c.start_level !== 1) {
+    throw new Error(`${c.name}: an events channel without its start_level (wireskein-format §4.4)`);
+  }
   if (c.encoding === 'bits') {
     if (data.length !== Math.ceil(c.n / 8)) throw new Error(`${c.name}: ${data.length} bytes for ${c.n} samples`);
     return { kind: 'logic', name: c.name, n: c.n, step: c.step, phase: c.phase, acquisition, bits: data };
   }
   if (c.encoding === 'events') {
-    return { kind: 'events', name: c.name, n: c.n, step: c.step, phase: c.phase, startLevel: c.start_level ? 1 : 0,
+    return { kind: 'events', name: c.name, n: c.n, step: c.step, phase: c.phase, startLevel: c.start_level,
              acquisition, ...eventsOf(c, data) };
   }
   return { kind: 'analog', name: c.name, encoding: c.encoding, n: c.n, rateHz: c.rate_hz, t0Ticks: c.t0_ticks,

@@ -6,8 +6,8 @@
 
 /** @typedef {import('./fileformat.js').Capture} Capture */
 
-export const MARKERS_FORMAT = 'wireskein-markers/0';
-export const ANNOTATIONS_FORMAT = 'wireskein-annotations/0';
+export const MARKERS_FORMAT = 'wireskein-markers/1';
+export const ANNOTATIONS_FORMAT = 'wireskein-annotations/1';
 
 /**
  * @typedef {object} Marker
@@ -54,8 +54,10 @@ export function readMarkers(cap) {
   const doc = json(cap.entries?.get('markers/markers.json'));
   if (doc === null) return cap.entries?.has('markers/markers.json') ? null : [];
   if (doc.format !== MARKERS_FORMAT || !Array.isArray(doc.markers)) return null;
-  return doc.markers.filter((/** @type {any} */ m) => typeof m?.t === 'number' && typeof m?.label === 'string'
+  const out = doc.markers.filter((/** @type {any} */ m) => typeof m?.t === 'number' && typeof m?.label === 'string'
     && (m.part === undefined || Number.isInteger(m.part)));
+  inParts(out, cap.parts.length, 'markers');
+  return out;
 }
 
 /**
@@ -66,8 +68,19 @@ export function readMarkers(cap) {
 export function readAnnotations(source) {
   const doc = 'entries' in source ? json(/** @type {Capture} */ (source).entries?.get('decode/annotations.json')) : source;
   if (!doc || doc.format !== ANNOTATIONS_FORMAT || !Array.isArray(doc.rows)) return null;
-  return doc.rows.filter((/** @type {any} */ r) => typeof r?.name === 'string' && Array.isArray(r.items)
+  const out = doc.rows.filter((/** @type {any} */ r) => typeof r?.name === 'string' && Array.isArray(r.items)
     && (r.part === undefined || Number.isInteger(r.part)));
+  if ('entries' in source) inParts(out, /** @type {Capture} */ (source).parts.length, 'annotation rows');
+  return out;
+}
+
+/**
+ * Every item of a part the file has (wireskein-format §5.2, §5.3: one of a part it does not have is refused).
+ * @param {{ part?: number }[]} items @param {number} n @param {string} what
+ */
+function inParts(items, n, what) {
+  const bad = items.filter((x) => (x.part ?? 0) < 0 || (x.part ?? 0) >= n);
+  if (bad.length) throw new Error(`${what} of a part the file does not have (it has ${n}): ${bad.map(partOf).join(', ')}`);
 }
 
 /**

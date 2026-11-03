@@ -270,7 +270,7 @@ function ownRowsShown(v) {
   /** @type {Map<string, AnnotationRow>} */
   const rows = new Map();                              // one lane per row name and channel, across the parts
   for (const r of v.ownRows) {
-    const d = partOffset(v, Math.min(partOf(r), v.base.parts.length - 1));
+    const d = partOffset(v, partOf(r));
     const items = r.items.map((it) => ({ ...it, s: it.s + d, e: it.e !== undefined ? it.e + d : undefined }));
     const key = `${r.name}\u0000${r.near ?? ''}`;
     const had = rows.get(key);
@@ -287,7 +287,7 @@ function ownRowsShown(v) {
 /** This file's markers on the view: the part shown's, or every part's on the file's ticks when joined. @param {View} v */
 const partMarkers = (v) => (v.joined
   ? v.markers.map((m) => {
-    const d = partOffset(v, Math.min(partOf(m), v.base.parts.length - 1));
+    const d = partOffset(v, partOf(m));
     return d ? { ...m, t: m.t + d, end: m.end !== undefined ? m.end + d : undefined } : m;
   })
   : v.markers.filter((m) => partOf(m) === v.base.part));

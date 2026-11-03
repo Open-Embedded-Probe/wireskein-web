@@ -69,6 +69,10 @@ for (const ch of cap.channels) {
   read), `attachments` and `notes`. `selectPart(cap, k)` shows part k.
 - `complete: false` means data was lost while capturing (`lost`: after which part, how many ticks, why): the capture
   failed and a reader says so.
+- A file that breaks the format's reader rules is refused with the rule it breaks (no `complete`, `complete` and
+  `lost` disagreeing, a layout other than timeline / segments, a timeline part without its tick0, an events channel
+  without its start_level, markers or annotation rows of a part the file does not have): it is never read as
+  something it may not be.
 - Logic channels hold one bit per sample (`levelAt(ch, k)`); sample k is at tick `phase + k * step`.
 - Events channels (`kind: "events"`, OEP capture format 1) hold a line's changes per quantum of `step` ticks from
   `phase`: per event its quantum (`quanta`), the level at its end (`levels`) and how many times it changed in it
