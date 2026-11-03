@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## 0.0.8
 - (EN) **Breaking:** markers, annotations and alignments are read as `wireskein-markers/1`, `wireskein-annotations/1` and `wireskein-alignment/1` (`MARKERS_FORMAT`, `ANNOTATIONS_FORMAT`, `ALIGNMENT_FORMAT`; every format is 1 until the first release). A file breaking the reader's rules is refused with the rule: no `complete` (it was read as complete), `complete` disagreeing with `lost`, an unknown layout (it was read as a timeline), a timeline part without its tick0, an events channel without its start_level (it was taken as 0), markers or annotation rows of a part the file does not have (they were drawn on the last part).
 - (JA) **互換のない変更:** マーカー、注釈、時刻合わせは `wireskein-markers/1`、`wireskein-annotations/1`、`wireskein-alignment/1` として読む（`MARKERS_FORMAT`、`ANNOTATIONS_FORMAT`、`ALIGNMENT_FORMAT`。どの形式も最初のリリースまで 1）。読み手の決まりに反するファイルは、その決まりを示して断る: `complete` が無い（完全と読んでいた）、`complete` と `lost` が食い違う、知らない layout（timeline と読んでいた）、timeline の区間に tick0 が無い、events のチャンネルに start_level が無い（0 としていた）、ファイルに無い区間のマーカーや注釈の行（最後の区間に描いていた）。
 
