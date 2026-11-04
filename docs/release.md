@@ -46,12 +46,6 @@ non-empty and describes all release changes.
 npm version patch              # use minor or major when appropriate
 ```
 
-For the initial release, whose `package.json` already contains `0.0.1`:
-
-```sh
-npm version 0.0.1 --allow-same-version
-```
-
 ## Publish and push
 
 Log in to npm and confirm the account (once per workstation; the login is kept in `~/.npmrc`):
@@ -59,7 +53,7 @@ Log in to npm and confirm the account (once per workstation; the login is kept i
 ```sh
 npm login                      # opens the browser (or asks for user, password and one-time code)
 npm whoami                     # the account that will publish
-npm owner ls wireskein-web     # after the first release: the accounts allowed to publish
+npm owner ls wireskein-web     # the accounts allowed to publish
 ```
 
 Then publish and push:

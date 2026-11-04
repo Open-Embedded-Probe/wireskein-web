@@ -43,12 +43,6 @@ git status --short
 npm version patch              # 必要なら minor か major
 ```
 
-最初のリリースは、`package.json` がすでに `0.0.1` なので、次のようにします。
-
-```sh
-npm version 0.0.1 --allow-same-version
-```
-
 ## 公開と push
 
 npm にログインし、アカウントを確かめます（マシンごとに 1 回。ログインは `~/.npmrc` に残ります）。
@@ -56,7 +50,7 @@ npm にログインし、アカウントを確かめます（マシンごとに 
 ```sh
 npm login                      # ブラウザが開く（または、ユーザー名、パスワード、ワンタイムコードを聞かれる）
 npm whoami                     # 公開に使うアカウント
-npm owner ls wireskein-web     # 最初のリリースの後: 公開できるアカウントの一覧
+npm owner ls wireskein-web     # 公開できるアカウントの一覧
 ```
 
 そのあと、公開して push します。
