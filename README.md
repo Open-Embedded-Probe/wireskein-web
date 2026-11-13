@@ -62,7 +62,7 @@ for (const ch of cap.channels) {
 
 - `readCapture(bytes)` reads a WireSkein file or a sigrok `.sr`, whatever its name (`sniff(bytes)` tells which;
   `readWireskein` and `readSr` read one kind). A `.sr` written by wireskein gets its channels back at their own rates
-  (the real step, the raw analog values, the metadata); any other `.sr` has every channel at the file's rate.
+  (the real `step`, the raw analog values, the metadata); any other `.sr` has every channel at the file's rate.
 - It returns the capture seen at its first part: the tick clock (`tickHz`, a `[numerator, denominator]` pair), the
   part's length in ticks, channels and `meta` (the capture's with the part's on top), and for the whole file `parts`,
   `layout` (`"timeline"` / `"segments"`), `complete`, `lost`, `skipped` (channels of encodings this version does not
